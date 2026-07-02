@@ -31,9 +31,9 @@ const additemController = require("../controllers/additemController");
 const cartController = require("../controllers/cartController");
 const newcategoryController = require("../controllers/newcategoryController");
 const editController = require("../controllers/editController");
-const allUsersController = require("../controllers/allUsersController");
+const allusersController = require("../controllers/allusersController");
 const orderController = require('../controllers/orderController');
-const wishlistController = require('../controllers/wishlistControlles');
+const wishlistController = require('../controllers/wishlistController');
 const couponController = require('../controllers/couponController');
 
 // Routes
@@ -66,7 +66,7 @@ router.post('/rest_api_delete_product', auth, authorizeRoles('admin'), editContr
 
 
 //===================all user routes ===================
-router.get("/rest_api_get_all_users", auth, authorizeRoles("admin"), allUsersController.getAllUsers);
+router.get("/rest_api_get_all_users", auth, authorizeRoles("admin"), allusersController.getAllUsers);
 
 
 
