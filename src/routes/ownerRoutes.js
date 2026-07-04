@@ -1,25 +1,3 @@
-/**
- * ============================================================================
- * ownerRoutes.js
- * ============================================================================
- * Purpose:
- * Main route file for:
- * - Products
- * - Cart
- * - Categories
- * - Product Edit/Delete
- * - Users
- * - Orders
- * - Wishlist
- * - Coupons
- *
- * Notes:
- * - Uses multer for product image uploads
- * - Uses auth middleware for protected routes
- * - Uses role middleware for admin-only routes
- * ============================================================================
- */
-
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
@@ -71,13 +49,7 @@ const upload = multer({ storage });
  * Admin only
  * Supports multiple product images
  */
-router.post(
-  "/rest_api_save_product",
-  auth,
-  authorizeRoles("admin"),
-  upload.array("productImages", 5),
-  additemController.saveitems
-);
+router.post("/rest_api_save_product", auth, authorizeRoles("admin"), upload.array("productImages", 5), additemController.saveitems);
 
 /**
  * Get all products
@@ -146,24 +118,13 @@ router.get("/rest_api_get_product/:id", editController.getProductById);
  * Admin only
  * Supports multiple product images
  */
-router.post(
-  "/rest_api_update_product",
-  auth,
-  authorizeRoles("admin"),
-  upload.array("productImages", 5),
-  editController.updateProduct
-);
+router.post("/rest_api_update_product", auth, authorizeRoles("admin"), upload.array("productImages", 5), editController.updateProduct);
 
 /**
  * Delete product
  * Admin only
  */
-router.post(
-  "/rest_api_delete_product",
-  auth,
-  authorizeRoles("admin"),
-  editController.deleteProduct
-);
+router.post("/rest_api_delete_product", auth, authorizeRoles("admin"), editController.deleteProduct);
 
 /* ============================================================================
    6) USER ROUTES
@@ -173,12 +134,7 @@ router.post(
  * Get all users
  * Admin only
  */
-router.get(
-  "/rest_api_get_all_users",
-  auth,
-  authorizeRoles("admin"),
-  allusersController.getAllUsers
-);
+router.get("/rest_api_get_all_users", auth, authorizeRoles("admin"), allusersController.getAllUsers);
 
 /* ============================================================================
    7) ORDER ROUTES
@@ -251,12 +207,7 @@ router.get("/rest_api_get_used_coupons", auth, couponController.getUsedCoupons);
  * Delete coupon by ID
  * Admin only
  */
-router.delete(
-  "/rest_api_delete_coupon/:id",
-  auth,
-  authorizeRoles("admin"),
-  couponController.deleteCoupon
-);
+router.delete("/rest_api_delete_coupon/:id", auth, authorizeRoles("admin"), couponController.deleteCoupon);
 
 module.exports = router;
 

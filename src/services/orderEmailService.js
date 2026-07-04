@@ -27,10 +27,10 @@ const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 
 // Debug check
-console.log("SMTP_HOST:", SMTP_HOST);
-console.log("SMTP_PORT:", SMTP_PORT);
-console.log("SMTP_USER:", SMTP_USER || "Missing");
-console.log("SMTP_PASS:", SMTP_PASS ? "Loaded" : "Missing");
+// console.log("SMTP_HOST:", SMTP_HOST);
+// console.log("SMTP_PORT:", SMTP_PORT);
+// console.log("SMTP_USER:", SMTP_USER || "Missing");
+// console.log("SMTP_PASS:", SMTP_PASS ? "Loaded" : "Missing");
 
 // Validate env before creating transporter
 if (!SMTP_USER || !SMTP_PASS) {
