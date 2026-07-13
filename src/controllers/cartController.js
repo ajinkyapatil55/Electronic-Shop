@@ -77,9 +77,20 @@ exports.getCartItems = async (req, res) => {
                 p.price, 
                 p.image_url, 
                 c.quantity,
-                c.user_id
+                c.user_id,
+                COALESCE(rv.average_rating, 0) AS average_rating,
+                COALESCE(rv.total_reviews, 0) AS total_reviews
             FROM cart c
             JOIN products p ON c.product_id = p.id
+            LEFT JOIN (
+                SELECT
+                    product_id,
+                    ROUND(AVG(rating), 1) AS average_rating,
+                    COUNT(*) AS total_reviews
+                FROM product_reviews
+                WHERE status = 'active'
+                GROUP BY product_id
+            ) rv ON rv.product_id = p.id
             WHERE c.user_id = ?
         `;
 

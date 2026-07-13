@@ -48,8 +48,23 @@ exports.saveitems = async (req, res) => {
 
 exports.getAllProducts = async (req, res) => {
     try {
-        // Use a standard query. If using mysql2/promise:
-        const [rows] = await db.query("SELECT * FROM products");
+        const [rows] = await db.query(
+            `SELECT
+                p.*,
+                COALESCE(rv.average_rating, 0) AS average_rating,
+                COALESCE(rv.total_reviews, 0) AS total_reviews
+             FROM products p
+             LEFT JOIN (
+                SELECT
+                    product_id,
+                    ROUND(AVG(rating), 1) AS average_rating,
+                    COUNT(*) AS total_reviews
+                FROM product_reviews
+                WHERE status = 'active'
+                GROUP BY product_id
+             ) rv ON rv.product_id = p.id
+             ORDER BY p.created_at ASC`
+        );
         
         res.status(200).json({
             success: true,
@@ -60,5 +75,4 @@ exports.getAllProducts = async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 };
-
 

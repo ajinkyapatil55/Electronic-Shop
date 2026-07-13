@@ -17,6 +17,9 @@ const allusersController = require("../controllers/allusersController");
 const orderController = require("../controllers/orderController");
 const wishlistController = require("../controllers/wishlistController");
 const couponController = require("../controllers/couponController");
+const reviewController = require("../controllers/reviewController");
+const addressController = require("../controllers/addressController");
+const deliveryboyinfoController = require("../controllers/deliveryboyinfoController");
 
 /* ============================================================================
    1) MULTER CONFIGURATION
@@ -158,7 +161,18 @@ router.get("/rest_api_get_all_orders", auth, orderController.getAllOrdersAdmin);
 /**
  * Update order status (admin)
  */
-router.post("/rest_api_update_order_status", auth, orderController.updateOrderStatusAdmin);
+router.post("/rest_api_update_order_status", auth, authorizeRoles("admin"), orderController.updateOrderStatusAdmin);
+
+/**
+ * Cancel order (user)
+ */
+router.delete('/cancel_order/:orderId', auth, orderController.cancelOrder);
+
+/**
+ * Get shipped orders for delivery boys also this order all info address amount all info fetch...
+ */
+router.get("/rest_api_get_shipped_orders", auth, orderController.getShippedOrdersForDelivery);
+
 
 /* ============================================================================
    8) WISHLIST ROUTES
@@ -208,6 +222,65 @@ router.get("/rest_api_get_used_coupons", auth, couponController.getUsedCoupons);
  * Admin only
  */
 router.delete("/rest_api_delete_coupon/:id", auth, authorizeRoles("admin"), couponController.deleteCoupon);
+
+
+
+/**
+ * Get product reviews
+ */
+router.get("/rest_api_get_product_reviews/:productId", reviewController.getProductReviews);
+
+/**   
+ * Add product review
+*/
+router.post("/rest_api_submit_review", auth, upload.single("review_image"), reviewController.submitReview);
+
+/**
+ * delete product review
+ */
+router.delete("/rest_api_delete_review/:reviewId", auth, reviewController.deleteReview);
+
+
+// ===================================================================
+// 10) ADDRESS ROUTES
+// ===================================================================
+
+router.post("/rest_api_save_address", auth, addressController.saveAddress);
+
+/**
+ * Get all saved addresses for the logged-in user
+ * GET /api/user/rest_api_get_all_addresses
+ */
+router.get("/rest_api_get_all_addresses", auth, addressController.getUserAddresses);
+/**
+ * Delete a specific saved address
+ * DELETE /api/user/rest_api_delete_address/:id
+ */
+router.delete("/rest_api_delete_address/:id", auth, addressController.deleteAddress);
+
+
+
+// ===================================================================
+// 11) DELIVERY BOY INFO
+// ===================================================================
+
+router.get("/rest_api_get_all_delivery_boys", auth, deliveryboyinfoController.getAllDeliveryBoys);
+router.get("/rest_api_get_delivery_boy/:id", auth, deliveryboyinfoController.getDeliveryBoyById);
+router.put("/rest_api_update_delivery_boy", auth, deliveryboyinfoController.updateDeliveryBoy);
+router.delete("/rest_api_delete_delivery_boy/:id", auth, deliveryboyinfoController.deleteDeliveryBoy);
+
+// assign delivery boy to order
+router.post("/rest_api_assign_delivery_boy_to_order", auth, deliveryboyinfoController.assignDeliveryBoy);
+
+// GET all orders assigned to a specific delivery boy
+router.get("/get_assigned_orders_by_delivery_boy_id", auth, deliveryboyinfoController.getAssignedOrdersByDeliveryBoyId);
+
+// delivery boy request accept or reject on assing delivery...
+router.post("/respond_to_assignment", auth, deliveryboyinfoController.respondToAssignment);
+
+// Delivery is completed only after the customer email OTP is verified.
+router.post("/request_delivery_completion_otp", auth, deliveryboyinfoController.requestDeliveryCompletionOtp);
+router.post("/verify_delivery_completion_otp", auth, deliveryboyinfoController.verifyDeliveryCompletionOtp);
 
 module.exports = router;
 
