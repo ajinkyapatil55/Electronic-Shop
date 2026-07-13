@@ -1,3 +1,4 @@
+/**LIVE SERVER SETUP FOR PRODUCTION / PM2 DEPLOYMENT**/
 /**
  * ============================================================================
  * app.js
@@ -242,6 +243,7 @@ module.exports = app;
 // app.use("/api/categories", ownerRoutes);
 // app.use("/api/orders", ownerRoutes);
 // app.use("/api/v1/user", ownerRoutes);
+// app.use("/api/reviews", ownerRoutes);
 // app.use("/api", ownerRoutes);
 
 // // Catch-all route to serve React's index.html for any frontend client routes

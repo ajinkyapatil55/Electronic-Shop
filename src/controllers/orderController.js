@@ -412,6 +412,68 @@ exports.getUserOrders = async (req, res) => {
 // =========================================================================
 // GET ALL ORDERS (Admin overview) — unchanged
 // =========================================================================
+// exports.getAllOrdersAdmin = async (req, res) => {
+//   try {
+//     const query = `
+//       SELECT o.*, oi.id as item_id, oi.product_id, oi.quantity, oi.price as item_price, 
+//              pl.tracking_reference, p.name as product_name, p.image_url as product_image
+//       FROM orders o
+//       LEFT JOIN order_items oi ON o.id = oi.order_id
+//       LEFT JOIN payment_logs pl ON o.id = pl.order_id
+//       LEFT JOIN products p ON oi.product_id = p.id
+//       ORDER BY o.id DESC
+//     `;
+//     const [rows] = await db.execute(query);
+
+//     const ordersMap = {};
+
+//     for (const row of rows) {
+//       if (!ordersMap[row.id]) {
+//         ordersMap[row.id] = {
+//           id: row.id,
+//           user_id: row.user_id,
+//           payment_method: row.payment_method,
+//           total_amount: row.total_amount,
+//           full_name: row.full_name,
+//           phone: row.phone,
+//           email: row.email,
+//           address: row.address,
+//           city: row.city,
+//           pincode: row.pincode,
+//           status: row.status,
+//           payment_status: row.payment_status,
+//           created_at: row.created_at,
+//           tracking_reference: row.tracking_reference,
+//           items: []
+//         };
+//       }
+
+//       if (row.item_id) {
+//         ordersMap[row.id].items.push({
+//           id: row.item_id,
+//           product_id: row.product_id,
+//           quantity: row.quantity,
+//           price: row.item_price,
+//           name: row.product_name,
+//           image_url: row.product_image
+//         });
+//       }
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       orders: Object.values(ordersMap)
+//     });
+//   } catch (error) {
+//     console.error("[ADMIN ORDERS DATA ERROR] Failed to fetch system orders registry:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error while retrieving structural records for orders registry."
+//     });
+//   }
+// };
+
+
 exports.getAllOrdersAdmin = async (req, res) => {
   try {
     const query = `
@@ -449,13 +511,35 @@ exports.getAllOrdersAdmin = async (req, res) => {
       }
 
       if (row.item_id) {
+        // --- IMAGE PARSING LOGIC FOR MULTIPLE IMAGES ---
+        let processedImage = "default-placeholder.png";
+
+        if (row.product_image) {
+          const trimmedImg = row.product_image.trim();
+          // Check if it's formatted as a JSON array string
+          if (trimmedImg.startsWith("[") && trimmedImg.endsWith("]")) {
+            try {
+              const parsedImages = JSON.parse(trimmedImg);
+              if (Array.isArray(parsedImages) && parsedImages.length > 0) {
+                // Safely extract the very first item from the array string
+                processedImage = parsedImages[0];
+              }
+            } catch (e) {
+              // If JSON parsing fails, fall back to using the raw string value
+              processedImage = row.product_image;
+            }
+          } else {
+            processedImage = row.product_image;
+          }
+        }
+
         ordersMap[row.id].items.push({
           id: row.item_id,
           product_id: row.product_id,
           quantity: row.quantity,
           price: row.item_price,
           name: row.product_name,
-          image_url: row.product_image
+          product_image: processedImage // Send out just a clean single image filename
         });
       }
     }
@@ -472,6 +556,9 @@ exports.getAllOrdersAdmin = async (req, res) => {
     });
   }
 };
+
+
+
 
 // =========================================================================
 // UPDATE EXISTING ORDER STATUS PROGRESSION (Admin operation) — unchanged
@@ -499,14 +586,16 @@ exports.updateOrderStatusAdmin = async (req, res) => {
   if (dbStatusValue.includes("pending")) dbStatusValue = "pending";
   else if (dbStatusValue.includes("processing")) dbStatusValue = "processing";
   else if (dbStatusValue.includes("shipped")) dbStatusValue = "shipped";
-  else if (dbStatusValue.includes("delivered")) dbStatusValue = "delivered";
   else if (dbStatusValue.includes("cancelled")) dbStatusValue = "cancelled";
 
-  const absoluteStatuses = ["pending", "processing", "shipped", "delivered", "cancelled"];
+  // Delivered is controlled exclusively by the customer-email OTP verification flow.
+  const absoluteStatuses = ["pending", "processing", "shipped", "cancelled"];
   if (!absoluteStatuses.includes(dbStatusValue)) {
     return res.status(400).json({
       success: false,
-      message: `Invalid status string configuration target value parsed: ${status}`
+      message: status.toLowerCase().includes("delivered")
+        ? "Delivered status can only be set after successful delivery OTP verification."
+        : `Invalid status string configuration target value parsed: ${status}`
     });
   }
 
@@ -532,6 +621,307 @@ exports.updateOrderStatusAdmin = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: `Database error: ${error.message}`
+    });
+  }
+};
+
+
+// =========================================================================
+// DELETE / CANCEL ORDER (User-initiated) — new feature
+// =========================================================================
+exports.cancelOrder = async (req, res) => {
+  const { orderId } = req.params;
+  
+  // Extract user ID mapped from your Authentication Middleware (JWT decoder)
+  const authenticatedUserId = req.user?.id || req.user?.userId || req.user?.user_id;
+
+  // 1. Validation Checks
+  if (!orderId || isNaN(parseInt(orderId, 10))) {
+    return res.status(400).json({ 
+      success: false, 
+      message: "A valid numeric order ID parameter is required." 
+    });
+  }
+
+  if (!authenticatedUserId) {
+    return res.status(401).json({ 
+      success: false, 
+      message: "Unauthorized: Access denied due to missing or invalid token credentials." 
+    });
+  }
+
+  let connection;
+  try {
+    // Acquire a dedicated client connection out of the pool to ensure safe transaction isolation
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    // 2. Fetch order metadata & apply a Row-Level Lock (FOR UPDATE) to prevent concurrency race conditions
+    const [orderRows] = await connection.execute(
+      `SELECT id, user_id, status, coupon_code FROM orders WHERE id = ? FOR UPDATE`,
+      [orderId]
+    );
+
+    if (orderRows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Target transaction matching identifier could not be resolved in our records." 
+      });
+    }
+
+    const order = orderRows[0];
+
+    // 3. Security Check: Block users attempting to delete someone else's order record
+    if (Number(order.user_id) !== Number(authenticatedUserId)) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Access Denied: You do not have permission to modify orders belonging to another account." 
+      });
+    }
+
+    // 4. Status Check: Only 'pending' or 'processing' statuses can be canceled/deleted
+    const currentStatus = (order.status || '').toLowerCase().trim();
+    if (currentStatus !== 'pending' && currentStatus !== 'processing') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Order cannot be canceled because it has already transitioned into a mutable stage (${order.status}).` 
+      });
+    }
+
+    // 5. Inventory Restoration: Fetch items inside this order and add the quantities back to stock tables
+    const [items] = await connection.execute(
+      `SELECT product_id, quantity FROM order_items WHERE order_id = ?`,
+      [orderId]
+    );
+
+    for (const item of items) {
+      await connection.execute(
+        `UPDATE products SET stock = stock + ? WHERE id = ?`,
+        [item.quantity, item.product_id]
+      );
+    }
+
+    // 6. Coupon Metric Rollbacks (If a coupon was applied to the order)
+    if (order.coupon_code) {
+      const [couponRows] = await connection.execute(
+        `SELECT id FROM coupons WHERE code = ?`,
+        [order.coupon_code]
+      );
+
+      if (couponRows.length > 0) {
+        const couponId = couponRows[0].id;
+        
+        // Lower usage counter securely without dropping under 0 boundaries
+        await connection.execute(
+          `UPDATE coupons SET used_count = CASE WHEN used_count > 0 THEN used_count - 1 ELSE 0 END WHERE id = ?`,
+          [couponId]
+        );
+
+        // Wipe out tracking history configuration mapping links
+        await connection.execute(
+          `DELETE FROM coupon_usage WHERE coupon_id = ? AND user_id = ? AND order_id = ?`,
+          [couponId, authenticatedUserId, orderId]
+        );
+      }
+    }
+
+    // 7. Cascade Deletions across dependent tables
+    await connection.execute(`DELETE FROM payment_logs WHERE order_id = ?`, [orderId]);
+    await connection.execute(`DELETE FROM order_items WHERE order_id = ?`, [orderId]);
+    
+    // Final step: Remove the master row tracking entry itself
+    const [deleteResult] = await connection.execute(`DELETE FROM orders WHERE id = ?`, [orderId]);
+
+    if (deleteResult.affectedRows === 0) {
+      throw new Error("Core database master tracking deletion returned an empty response set execution matrix.");
+    }
+
+    // Everything executed flawlessly -> Save permanently to database disk memory
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Order was successfully cancelled, product stock restored, and data records deleted safely.",
+      cancelledOrderId: parseInt(orderId, 10)
+    });
+
+  } catch (err) {
+    console.error("[CRITICAL TRANS ACTION CANCELATION ERROR]: Instigating emergency database rollback...", err);
+    
+    if (connection) {
+      try { 
+        await connection.rollback(); 
+      } catch (rollbackErr) { 
+        console.error("Failed to execute database rollback protocol context:", rollbackErr); 
+      }
+    }
+
+    return res.status(500).json({ 
+      success: false, 
+      message: err.message || "Internal server error occurred processing target secure removal pipeline lifecycle." 
+    });
+  } finally {
+    if (connection) connection.release(); // Free connection handle back to pool
+  }
+};
+
+
+// =========================================================================
+// GET ORDER FROM ONLY STATUS ARE 'SHIPPED' THIS ONLY FETCH TO THE DELIVERY BOY
+// =========================================================================
+// exports.getShippedOrdersForDelivery = async (req, res) => {
+//   try {
+//     const query = `
+//       SELECT o.*, oi.id as item_id, oi.product_id, oi.quantity, oi.price as item_price, 
+//              pl.tracking_reference, p.name as product_name, p.image_url as product_image
+//       FROM orders o
+//       LEFT JOIN order_items oi ON o.id = oi.order_id
+//       LEFT JOIN payment_logs pl ON o.id = pl.order_id
+//       LEFT JOIN products p ON oi.product_id = p.id
+//       WHERE o.status = 'SHIPPED'
+//       ORDER BY o.id DESC
+//     `;
+//     const [rows] = await db.execute(query);
+
+//     const ordersMap = {};
+
+//     for (const row of rows) {
+//       if (!ordersMap[row.id]) {
+//         ordersMap[row.id] = {
+//           id: row.id,
+//           user_id: row.user_id,
+//           payment_method: row.payment_method,
+//           total_amount: row.total_amount,
+//           full_name: row.full_name,
+//           phone: row.phone,
+//           email: row.email,
+//           address: row.address,
+//           city: row.city,
+//           pincode: row.pincode,
+//           status: row.status,
+//           payment_status: row.payment_status,
+//           created_at: row.created_at,
+//           tracking_reference: row.tracking_reference,
+//           items: []
+//         };
+//       }
+
+//       if (row.item_id) {
+//         ordersMap[row.id].items.push({
+//           id: row.item_id,
+//           product_id: row.product_id,
+//           quantity: row.quantity,
+//           price: row.item_price,
+//           name: row.product_name,
+//           image_url: row.product_image
+//         });
+//       }
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       orders: Object.values(ordersMap)
+//     });
+//   } catch (error) {
+//     console.error("[ADMIN ORDERS DATA ERROR] Failed to fetch system orders registry:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error while retrieving structural records for orders registry."
+//     });
+//   }
+// };
+
+
+exports.getShippedOrdersForDelivery = async (req, res) => {
+  try {
+    // Include unassigned shipped orders and orders whose latest delivery assignment was rejected.
+    const query = `
+      SELECT o.*, oi.id as item_id, oi.product_id, oi.quantity, oi.price as item_price, 
+             pl.tracking_reference, p.name as product_name, p.image_url as product_image
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN payment_logs pl ON o.id = pl.order_id
+      LEFT JOIN products p ON oi.product_id = p.id
+      LEFT JOIN (
+        SELECT ad1.* FROM assign_delivery ad1
+        INNER JOIN (
+          SELECT order_id, MAX(id) as max_id 
+          FROM assign_delivery 
+          GROUP BY order_id
+        ) ad2 ON ad1.id = ad2.max_id
+      ) ad ON o.id = ad.order_id
+      WHERE (
+        (LOWER(o.status) = 'shipped' AND ad.order_id IS NULL)
+        OR ad.assignment_status = 'rejected'
+      )
+      ORDER BY o.id DESC
+    `;
+    const [rows] = await db.execute(query);
+
+    const ordersMap = {};
+
+    for (const row of rows) {
+      if (!ordersMap[row.id]) {
+        ordersMap[row.id] = {
+          id: row.id,
+          user_id: row.user_id,
+          payment_method: row.payment_method,
+          full_name: row.full_name,
+          phone: row.phone,
+          email: row.email,
+          address: row.address,
+          city: row.city,
+          pincode: row.pincode,
+          total_amount: row.total_amount,
+          offer_amount: row.offer_amount,          
+          delivery_charges: row.delivery_charges,  
+          status: row.status,
+          payment_status: row.payment_status,      
+          created_at: row.created_at,
+          tracking_reference: row.tracking_reference,
+          items: []
+        };
+      }
+
+      if (row.item_id) {
+        let processedImage = "default-placeholder.png";
+
+        if (row.product_image) {
+          const trimmedImg = row.product_image.trim();
+          if (trimmedImg.startsWith("[") && trimmedImg.endsWith("]")) {
+            try {
+              const parsedImages = JSON.parse(trimmedImg);
+              if (Array.isArray(parsedImages) && parsedImages.length > 0) {
+                processedImage = parsedImages[0];
+              }
+            } catch (e) {
+              processedImage = row.product_image;
+            }
+          } else {
+            processedImage = row.product_image;
+          }
+        }
+
+        ordersMap[row.id].items.push({
+          id: row.item_id,
+          product_id: row.product_id,
+          quantity: row.quantity,
+          price: row.item_price,
+          name: row.product_name,
+          product_image: processedImage
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      orders: Object.values(ordersMap)
+    });
+  } catch (error) {
+    console.error("[ADMIN SHIPPED ORDERS DATA ERROR] Failed to fetch system records:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while retrieving structural records for shipped orders."
     });
   }
 };

@@ -540,6 +540,36 @@ async function sendOrderConfirmationEmail(orderId) {
 
 }
 
+async function sendDeliveryCompletionOtpEmail({ email, customerName, orderId, otp }) {
+    if (!email) {
+        return { sent: false, error: "Customer email is missing." };
+    }
+
+    try {
+        const info = await transporter.sendMail({
+            from: `"${STORE.name}" <${process.env.SMTP_USER}>`,
+            to: email,
+            subject: `Delivery verification code for Order #${orderId}`,
+            text: `Hello ${customerName || "Customer"},\n\nYour delivery verification code for order #${orderId} is ${otp}.\n\nGive this code only to the delivery person after you have received your order. It expires in 10 minutes.\n\n${STORE.name}`,
+            html: `
+                <div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5">
+                    <h2 style="color:${STORE.themeColor}">Confirm your delivery</h2>
+                    <p>Hello ${customerName || "Customer"},</p>
+                    <p>Give this code to the delivery person <strong>only after you receive order #${orderId}</strong>.</p>
+                    <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:24px 0">${otp}</p>
+                    <p>This code expires in 10 minutes. Do not share it before receiving your order.</p>
+                </div>
+            `,
+        });
+
+        return { sent: true, messageId: info.messageId };
+    } catch (error) {
+        console.error("Delivery OTP email failed:", error.message || error);
+        return { sent: false, error: error.message };
+    }
+}
+
 module.exports = {
     sendOrderConfirmationEmail,
+    sendDeliveryCompletionOtpEmail,
 };
