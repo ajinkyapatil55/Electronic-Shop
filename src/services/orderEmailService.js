@@ -11,7 +11,7 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, "..", "..", 
 
 const STORE = {
     name: "Electronic Shop",
-    logoUrl: process.env.STORE_LOGO_URL || "", // e.g. https://yourdomain.com/logo.png
+    logoUrl: process.env.STORE_LOGO_URL || "..//src/assets/logo.png", // e.g. https://yourdomain.com/logo.png
     supportEmail: process.env.SUPPORT_EMAIL || "support@electronicshop.com",
     supportPhone: process.env.SUPPORT_PHONE || "+91 9876543210",
     website: process.env.STORE_WEBSITE || "www.electronicshop.com",
@@ -502,7 +502,7 @@ async function sendOrderConfirmationEmail(orderId) {
         const html = buildOrderEmailHtml({ order, items, imageSrcByIndex });
         const text = buildOrderEmailText({ order, items });
 
-        console.log("HTML Generated Successfully");
+        // console.log("HTML Generated Successfully");
 
         const info = await transporter.sendMail({
             from: `"${STORE.name}" <${process.env.SMTP_USER}>`,
@@ -540,6 +540,10 @@ async function sendOrderConfirmationEmail(orderId) {
 
 }
 
+
+// ============================================================================
+// SEND DELIVERY OTP EMAIL
+// ============================================================================ 
 async function sendDeliveryCompletionOtpEmail({ email, customerName, orderId, otp }) {
     if (!email) {
         return { sent: false, error: "Customer email is missing." };

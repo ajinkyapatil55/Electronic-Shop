@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const notificationService = require('../services/notificationService');
 
 // ==========================================
 // 1. CREATE COUPON
@@ -77,6 +78,14 @@ exports.createCoupon = async (req, res) => {
             startDate ? new Date(startDate) : new Date(),
             new Date(expiryDate)
         ]);
+
+        const [recipients] = targetType === 'particular'
+            ? await db.query('SELECT id FROM users WHERE id = ?', [userIdValue])
+            : await db.query("SELECT id FROM users WHERE role = 'user'");
+        notificationService.notifyCouponAvailable(
+            { code: formattedCode, discountAmount: parsedDiscount },
+            recipients.map((user) => user.id)
+        ).catch((error) => console.error('[FCM] Coupon notification failed:', error.message));
 
         // ✅ FIX: Return field names that match what the frontend expects
         return res.status(201).json({

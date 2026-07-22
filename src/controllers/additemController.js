@@ -1,5 +1,6 @@
 // ONLY ONE declaration allowed at the top
 const db = require("../config/db");
+const notificationService = require('../services/notificationService');
 
 // ================== ADD NEW PRODUCT WITH MULTIPLE IMAGES ==================
 exports.saveitems = async (req, res) => {
@@ -33,6 +34,15 @@ exports.saveitems = async (req, res) => {
 
         const [result] = await db.query(sql, values);
 
+        notificationService.notifyNewProduct({ id: result.insertId, name }).catch((error) =>
+            console.error('[FCM] New product notification failed:', error.message)
+        );
+        if (Number(stock) <= Number(process.env.LOW_STOCK_THRESHOLD || 5)) {
+            notificationService.notifyLowStock({ id: result.insertId, name, stock }).catch((error) =>
+                console.error('[FCM] Low stock notification failed:', error.message)
+            );
+        }
+
         res.status(200).json({
             success: true,
             message: "Product saved with multiple images!",
@@ -44,10 +54,10 @@ exports.saveitems = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
-// fetch to data on Home page
 
+// fetch to data on Home page
 exports.getAllProducts = async (req, res) => {
-    try {
+    try {   
         const [rows] = await db.query(
             `SELECT
                 p.*,
@@ -73,6 +83,34 @@ exports.getAllProducts = async (req, res) => {
     } catch (error) {
         console.error("Error in getAllProducts:", error.message);
         res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
+};
+
+// Search products for the storefront Navbar.
+exports.searchProducts = async (req, res) => {
+    try {
+        const query = String(req.query.q || '').trim();
+        if (query.length < 2) {
+            return res.status(200).json({ success: true, products: [] });
+        }
+
+        const searchTerm = `%${query}%`;
+        const [products] = await db.query(
+            `SELECT id, product_id, name, price, stock, category, image_url, description
+             FROM products
+             WHERE name LIKE ?
+                OR product_id LIKE ?
+                OR category LIKE ?
+                OR description LIKE ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT 8`,
+            [searchTerm, searchTerm, searchTerm, searchTerm]
+        );
+
+        return res.status(200).json({ success: true, products });
+    } catch (error) {
+        console.error('Product search error:', error.message);
+        return res.status(500).json({ success: false, message: 'Unable to search products.' });
     }
 };
 
