@@ -360,7 +360,8 @@ exports.submitReview = async (req, res) => {
 
             if (req.file) {
                 queryStr += `, review_image = ?`;
-                queryParams.push(`uploads/${req.file.filename}`);
+                const fileVal = (req.file.path && (req.file.path.startsWith('http://') || req.file.path.startsWith('https://'))) ? req.file.path : `uploads/${req.file.filename}`;
+                queryParams.push(fileVal);
             }
 
             queryStr += ` WHERE id = ?`;
@@ -379,7 +380,9 @@ exports.submitReview = async (req, res) => {
         }
 
         // ---------------- INSERT NEW REVIEW ----------------
-        const review_image = req.file ? `uploads/${req.file.filename}` : null;
+        const review_image = req.file 
+            ? ((req.file.path && (req.file.path.startsWith('http://') || req.file.path.startsWith('https://'))) ? req.file.path : `uploads/${req.file.filename}`)
+            : null;
         const [insertResult] = await db.query(
             `INSERT INTO product_reviews
              (product_id, user_id, rating, review_title, review_text, review_image, sentiment, status, created_at, updated_at)

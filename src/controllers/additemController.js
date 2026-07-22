@@ -10,8 +10,8 @@ exports.saveitems = async (req, res) => {
         // --- FIX STARTS HERE ---
         let image_url = null;
         if (req.files && req.files.length > 0) {
-            // 1. Get an array of all filenames
-            const fileNames = req.files.map(file => file.filename);
+            // 1. Get an array of all filenames/paths
+            const fileNames = req.files.map(file => (file.path && (file.path.startsWith('http://') || file.path.startsWith('https://'))) ? file.path : file.filename);
             
             // 2. Convert the array to a JSON string: '["img1.jpg", "img2.jpg"]'
             image_url = JSON.stringify(fileNames); 
