@@ -20,6 +20,7 @@ const couponController = require("../controllers/couponController");
 const reviewController = require("../controllers/reviewController");
 const addressController = require("../controllers/addressController");
 const deliveryboyinfoController = require("../controllers/deliveryboyinfoController");
+const notificationController = require("../controllers/notificationController");
 
 /* ============================================================================
    1) MULTER CONFIGURATION
@@ -58,6 +59,9 @@ router.post("/rest_api_save_product", auth, authorizeRoles("admin"), upload.arra
  * Get all products
  */
 router.get("/rest_api_get_all_products", additemController.getAllProducts);
+
+// Public product search used by the storefront Navbar.
+router.get("/rest_api_search_products", additemController.searchProducts);
 
 /* ============================================================================
    3) CART ROUTES
@@ -193,51 +197,39 @@ router.post("/rest_api_add_to_wishlist", auth, wishlistController.addToWishlist)
  */
 router.post("/rest_api_delete_wishlist_item", auth, wishlistController.deleteWishlistItem);
 
+router.post("/notifications/fcm-token", auth, notificationController.registerToken);
+router.delete("/notifications/fcm-token", auth, notificationController.removeToken);
+router.get("/notifications/status", auth, authorizeRoles("admin"), notificationController.status);
+router.post("/notifications/test", auth, notificationController.sendTest);
+
 /* ============================================================================
    9) COUPON ROUTES
 ============================================================================ */
 
-/**
- * Get active coupons
- */
+// Get active coupons
 router.get("/rest_api_get_active_coupons", auth, couponController.getActiveCoupons);
 
-/**
- * Create coupon
- */
+// Create coupon
 router.post("/rest_api_create_coupon", auth, couponController.createCoupon);
 
-/**
- * Validate coupon
- */
+// Validate coupon
 router.post("/rest_api_validate_coupon", auth, couponController.validateCoupon);
 
-/**
- * Get used coupons
- */
+// Get used coupons
 router.get("/rest_api_get_used_coupons", auth, couponController.getUsedCoupons);
 
-/**
- * Delete coupon by ID
- * Admin only
- */
+// Delete coupon by ID Admin only
 router.delete("/rest_api_delete_coupon/:id", auth, authorizeRoles("admin"), couponController.deleteCoupon);
 
 
 
-/**
- * Get product reviews
- */
+// Get product reviews
 router.get("/rest_api_get_product_reviews/:productId", reviewController.getProductReviews);
 
-/**   
- * Add product review
-*/
+//  Add product review
 router.post("/rest_api_submit_review", auth, upload.single("review_image"), reviewController.submitReview);
 
-/**
- * delete product review
- */
+// delete product review
 router.delete("/rest_api_delete_review/:reviewId", auth, reviewController.deleteReview);
 
 
@@ -281,6 +273,8 @@ router.post("/respond_to_assignment", auth, deliveryboyinfoController.respondToA
 // Delivery is completed only after the customer email OTP is verified.
 router.post("/request_delivery_completion_otp", auth, deliveryboyinfoController.requestDeliveryCompletionOtp);
 router.post("/verify_delivery_completion_otp", auth, deliveryboyinfoController.verifyDeliveryCompletionOtp);
+
+
 
 module.exports = router;
 

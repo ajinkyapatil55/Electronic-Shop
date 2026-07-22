@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const notificationService = require('../services/notificationService');
 // 👉 CHANGE 1: import the new email service
 const { sendOrderConfirmationEmail } = require("../services/orderEmailService");
 
@@ -7,6 +8,7 @@ const { sendOrderConfirmationEmail } = require("../services/orderEmailService");
 // =========================================================================
 exports.createOrder = async (req, res) => {
   const { items, shippingDetails, payment } = req.body;
+  const lowStockProducts = [];
 
   // 1. Structural Validation Checks
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -179,6 +181,10 @@ exports.createOrder = async (req, res) => {
         `UPDATE products SET stock = stock - ? WHERE id = ?`,
         [quantity, p_id]
       );
+      const remainingStock = Number(product.stock) - quantity;
+      if (remainingStock <= Number(process.env.LOW_STOCK_THRESHOLD || 5)) {
+        lowStockProducts.push({ id: product.id, name: product.name, stock: remainingStock });
+      }
 
       // Insert the order line item
       await connection.execute(insertItemsSql, [assignedOrderId, p_id, quantity, price]);
@@ -229,6 +235,16 @@ exports.createOrder = async (req, res) => {
     // 👉 CHANGE 2: fire the order-confirmation email AFTER commit.
     // Fire-and-forget (not awaited) so a slow mail server never delays
     // the checkout response the user is waiting for.
+    notificationService.notifyOrderPlaced(assignedOrderId, u_id).catch((error) =>
+      console.error('[FCM] Order placed notification failed:', error.message)
+    );
+    for (const product of lowStockProducts) {
+      notificationService.notifyLowStock(product).catch((error) => console.error('[FCM] Low stock admin notification failed:', error.message));
+      db.query('SELECT DISTINCT user_id FROM cart WHERE product_id = ? AND user_id <> ?', [product.id, u_id])
+        .then(([rows]) => notificationService.notifyLowStockCartUsers(product, rows.map((row) => row.user_id)))
+        .catch((error) => console.error('[FCM] Low stock cart notification failed:', error.message));
+    }
+
     console.log("Calling sendOrderConfirmationEmail...");
 
 sendOrderConfirmationEmail(assignedOrderId)
@@ -600,6 +616,10 @@ exports.updateOrderStatusAdmin = async (req, res) => {
   }
 
   try {
+    const [orderRows] = await db.execute('SELECT user_id FROM orders WHERE id = ? LIMIT 1', [parsedOrderId]);
+    if (orderRows.length === 0) {
+      return res.status(404).json({ success: false, message: `No active order record found matching identifier: #${parsedOrderId}` });
+    }
     const updateSql = "UPDATE `orders` SET `status` = ?, `updated_at` = NOW() WHERE `id` = ?";
     const [result] = await db.execute(updateSql, [dbStatusValue, parsedOrderId]);
 
@@ -608,6 +628,12 @@ exports.updateOrderStatusAdmin = async (req, res) => {
         success: false,
         message: `No active order record found matching identifier: #${parsedOrderId}`
       });
+    }
+
+    if (dbStatusValue === 'shipped') {
+      notificationService.notifyOrderShipped(parsedOrderId, orderRows[0].user_id).catch((error) =>
+        console.error('[FCM] Order shipped notification failed:', error.message)
+      );
     }
 
     return res.status(200).json({
@@ -738,6 +764,10 @@ exports.cancelOrder = async (req, res) => {
 
     // Everything executed flawlessly -> Save permanently to database disk memory
     await connection.commit();
+
+    notificationService.notifyOrderCancelled(orderId, authenticatedUserId).catch((error) =>
+      console.error('[FCM] Order cancellation notification failed:', error.message)
+    );
 
     return res.status(200).json({
       success: true,

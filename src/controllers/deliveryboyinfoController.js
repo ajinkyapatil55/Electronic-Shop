@@ -2,6 +2,7 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const db = require("../config/db");
+const notificationService = require('../services/notificationService');
 const { sendDeliveryCompletionOtpEmail } = require("../services/orderEmailService");
 
 let deliveryOtpTablePromise;
@@ -26,11 +27,9 @@ function getAuthenticatedUserId(req) {
     return req.user?.id || req.user?._id || req.user?.userId || req.user?.user_id;
 }
 
-/**
- * 1. Fetch Profile Data for the Currently Logged-in Delivery Boy
- * URL Target: GET /api/auth/rest_api_get_delivery_boy_profile
- * Secure Route: Requires authentication middleware (req.user)
- */
+// ================== 1. Get Delivery Boy Profile ==================
+// 1. Fetch Profile Data for the Currently Logged-in Delivery Boy
+// =================================================================
 exports.getDeliveryBoyProfile = async (req, res) => {
     try {
         const userId = req.user?.id || req.user?._id || req.userId;
@@ -174,9 +173,9 @@ exports.saveDeliveryBoyProfileDetails = async (req, res) => {
     }
 };
 
-/**
- * 3. Register Delivery Boy (Legacy Creation Route / Admin Panel context)
- */
+// =========================================================================
+// 3. Register Delivery Boy (Legacy Creation Route / Admin Panel context)
+//
 exports.registerDeliveryBoy = async (req, res) => {
     const {
         name, email, password, confirmPassword,
@@ -251,9 +250,9 @@ exports.registerDeliveryBoy = async (req, res) => {
     }
 };
 
-/**
- * 4. Get All Delivery Boys (Admin View)
- */
+// =====================================================    
+// 4. Get All Delivery Boys (Admin View)
+// =====================================================
 exports.getAllDeliveryBoys = async (req, res) => {
     try {
         const [rows] = await db.query(
@@ -276,9 +275,9 @@ exports.getAllDeliveryBoys = async (req, res) => {
     }
 };
 
-/**
- * 5. Fetch Single Delivery Boy By ID
- */
+// ============================================
+// 5. Fetch Single Delivery Boy By ID
+// ============================================
 exports.getDeliveryBoyById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -305,10 +304,9 @@ exports.getDeliveryBoyById = async (req, res) => {
     }
 };
 
-/**
- * 5b. Get Delivery Boy Status By User ID (fixes DeliveryBoyDashboard 404)
- * URL Target: GET /api/delivery/status/:userId
- */
+//=============================================================================
+// 5b. Get Delivery Boy Status By User ID (fixes DeliveryBoyDashboard 404)
+//=============================================================================
 exports.getDeliveryBoyStatus = async (req, res) => {
     try {
         const { userId } = req.params;
@@ -329,9 +327,9 @@ exports.getDeliveryBoyStatus = async (req, res) => {
     }
 };
 
-/**
- * 6. Update Delivery Boy (Admin Context)
- */
+//=====================================
+// 6. Update Delivery Boy (Admin Context)
+//=====================================
 exports.updateDeliveryBoy = async (req, res) => {
     try {
         const {
@@ -390,9 +388,9 @@ exports.updateDeliveryBoy = async (req, res) => {
     }
 };
 
-/**
- * 7. Delete Delivery Boy
- */
+// ========================
+// 7. Delete Delivery Boy
+// ========================
 exports.deleteDeliveryBoy = async (req, res) => {
     try {
         const { id } = req.params;
@@ -464,7 +462,7 @@ exports.assignDeliveryBoy = async (req, res) => {
 
 
 //==========================================================================
-// Get the assign order from the delivery boy (Excluding Rejected Items)
+// 9. Get the assign order from the delivery boy (Excluding Rejected Items)
 //==========================================================================
 exports.getAssignedOrdersByDeliveryBoyId = async (req, res) => {
   try {
@@ -538,7 +536,7 @@ exports.getAssignedOrdersByDeliveryBoyId = async (req, res) => {
 };
 
 //==========================================================================
-// Handle Accept or Reject requests (Saving history to table)
+// 10. Handle Accept or Reject requests (Saving history to table)
 //==========================================================================
 exports.respondToAssignment = async (req, res) => {
   try {
@@ -558,6 +556,12 @@ exports.respondToAssignment = async (req, res) => {
         `UPDATE orders SET status = 'shipped' WHERE id = ?`, 
         [order_id]
       );
+      const [orders] = await db.execute('SELECT user_id FROM orders WHERE id = ? LIMIT 1', [order_id]);
+      if (orders.length) {
+        notificationService.notifyOrderShipped(order_id, orders[0].user_id).catch((error) =>
+          console.error('[FCM] Order shipped notification failed:', error.message)
+        );
+      }
       
       return res.status(200).json({ success: true, message: "Delivery accepted successfully!" });
     } 
@@ -587,7 +591,7 @@ exports.respondToAssignment = async (req, res) => {
 };
 
 //==========================================================================
-// Delivery completion OTP: request email code, then verify before delivery
+// 11. Delivery completion OTP: request email code, then verify before delivery
 //==========================================================================
 exports.requestDeliveryCompletionOtp = async (req, res) => {
   try {
@@ -642,6 +646,9 @@ exports.requestDeliveryCompletionOtp = async (req, res) => {
   }
 };
 
+//==========================================================================
+// 12. Check OTP Verification for Delivery Completion
+//==========================================================================
 exports.verifyDeliveryCompletionOtp = async (req, res) => {
   let connection;
   try {
@@ -701,6 +708,13 @@ exports.verifyDeliveryCompletionOtp = async (req, res) => {
     await connection.execute(`DELETE FROM delivery_completion_otps WHERE order_id = ?`, [orderId]);
     await connection.commit();
 
+    const [deliveredOrders] = await db.execute('SELECT user_id FROM orders WHERE id = ? LIMIT 1', [orderId]);
+    if (deliveredOrders.length) {
+      notificationService.notifyOrderDelivered(orderId, deliveredOrders[0].user_id).catch((error) =>
+        console.error('[FCM] Order delivered notification failed:', error.message)
+      );
+    }
+
     return res.status(200).json({ success: true, message: "OTP verified. Order marked as delivered." });
   } catch (error) {
     if (connection) await connection.rollback();
@@ -712,247 +726,10 @@ exports.verifyDeliveryCompletionOtp = async (req, res) => {
 };
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// // controllers/deliveryboyinfoController.js
-// const bcrypt = require('bcryptjs');
-// const db = require("../config/db");
-
-// // Register Delivery Boy
-// exports.registerDeliveryBoy = async (req, res) => {
-//     const {
-//         name, email, password, confirmPassword,
-//         mobile, alternate_mobile, address, city, state, pincode, dob, gender,
-//         aadhaar_number, pan_number, driving_license_number,
-//         vehicle_type, vehicle_number, joining_date,
-//         emergency_contact_name, emergency_contact_mobile,
-//         profile_photo, aadhaar_photo, pan_photo,
-//         driving_license_photo, vehicle_rc_photo
-//     } = req.body;
-
-//     if (!name || !email || !password || !confirmPassword) {
-//         return res.status(400).json({ success: false, message: 'Name, email and password are required' });
-//     }
-//     if (password !== confirmPassword) {
-//         return res.status(400).json({ success: false, message: 'Passwords do not match' });
-//     }
-//     if (password.length < 6) {
-//         return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
-//     }
-//     if (!mobile || !address || !city || !state || !pincode) {
-//         return res.status(400).json({ success: false, message: 'Mobile, address, city, state and pincode are required' });
-//     }
-//     if (!aadhaar_number || !driving_license_number || !vehicle_type || !vehicle_number || !joining_date) {
-//         return res.status(400).json({ success: false, message: 'Aadhaar, driving license, vehicle type/number and joining date are required' });
-//     }
-
-//     try {
-//         const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
-//         if (existing.length > 0) {
-//             return res.status(409).json({ success: false, message: 'An account with this email already exists' });
-//         }
-
-//         const hashedPassword = await bcrypt.hash(password, 10);
-//         const [userResult] = await db.query(
-//             `INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, 'delivery_boy')`,
-//             [name, email, hashedPassword]
-//         );
-//         const userId = userResult.insertId;
-
-//         await db.query(
-//             `INSERT INTO delivery_boys (
-//                  user_id, mobile, alternate_mobile, address, city, state, pincode, dob, gender,
-//                  aadhaar_number, pan_number, driving_license_number,
-//                  vehicle_type, vehicle_number, joining_date,
-//                  emergency_contact_name, emergency_contact_mobile,
-//                  profile_photo, aadhaar_photo, pan_photo, driving_license_photo, vehicle_rc_photo
-//                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-//             [
-//                 userId, mobile, alternate_mobile || null, address, city, state, pincode,
-//                 dob || null, gender || 'Male',
-//                 aadhaar_number, pan_number || null, driving_license_number,
-//                 vehicle_type, vehicle_number, joining_date,
-//                 emergency_contact_name || null, emergency_contact_mobile || null,
-//                 profile_photo || null, aadhaar_photo || null, pan_photo || null,
-//                 driving_license_photo || null, vehicle_rc_photo || null
-//             ]
-//         );
-
-//         res.status(201).json({
-//             success: true,
-//             message: 'Delivery boy profile created successfully',
-//             data: { id: userId, name, email, role: 'delivery_boy' }
-//         });
-//     } catch (err) {
-//         console.error('Delivery boy registration error:', err);
-//         res.status(500).json({ success: false, message: 'Failed to register delivery boy' });
-//     }
-// };
-
-// // Get All Delivery Boys
-// exports.getAllDeliveryBoys = async (req, res) => {
-//     try {
-//         const [rows] = await db.query(
-//             `SELECT u.id, u.name, u.email, u.created_at,
-//                     d.mobile, d.alternate_mobile, d.address, d.city, d.state, d.pincode,
-//                     d.dob, d.gender, d.aadhaar_number, d.pan_number, d.driving_license_number,
-//                     d.vehicle_type, d.vehicle_number, d.joining_date,
-//                     d.emergency_contact_name, d.emergency_contact_mobile,
-//                     d.profile_photo, d.aadhaar_photo, d.pan_photo,
-//                     d.driving_license_photo, d.vehicle_rc_photo, d.status
-//              FROM users u
-//              INNER JOIN delivery_boys d ON d.user_id = u.id
-//              WHERE u.role = 'delivery_boy'
-//              ORDER BY u.created_at DESC`
-//         );
-//         res.status(200).json({ success: true, data: rows });
-//     } catch (err) {
-//         console.error('Fetch delivery boys error:', err);
-//         res.status(500).json({ success: false, message: 'Failed to fetch delivery boys' });
-//     }
-// };
-
-// // Fetch single delivery boy for the Edit Form (Matches rows[0] structure)
-// exports.getDeliveryBoyById = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         const [rows] = await db.query(
-//             `SELECT u.id, u.name, u.email, u.created_at,
-//                     d.mobile, d.alternate_mobile, d.address, d.city, d.state, d.pincode,
-//                     d.dob, d.gender, d.aadhaar_number, d.pan_number, d.driving_license_number,
-//                     d.vehicle_type, d.vehicle_number, d.joining_date,
-//                     d.emergency_contact_name, d.emergency_contact_mobile,
-//                     d.profile_photo, d.aadhaar_photo, d.pan_photo,
-//                     d.driving_license_photo, d.vehicle_rc_photo, d.status
-//              FROM users u
-//              INNER JOIN delivery_boys d ON d.user_id = u.id
-//              WHERE u.id = ? AND u.role = 'delivery_boy'`,
-//             [id]
-//         );
-//         if (rows.length === 0) {
-//             return res.status(404).json({ success: false, message: 'Delivery boy not found' });
-//         }
-//         res.status(200).json(rows[0]);
-//     } catch (err) {
-//         console.error('Fetch delivery boy error:', err);
-//         res.status(500).json({ success: false, message: 'Failed to fetch delivery boy' });
-//     }
-// };
-
-// // Update delivery boy
-// exports.updateDeliveryBoy = async (req, res) => {
-//     try {
-//         const {
-//             user_id, name,
-//             mobile, alternate_mobile, address, city, state, pincode, dob, gender,
-//             aadhaar_number, pan_number, driving_license_number,
-//             vehicle_type, vehicle_number, joining_date,
-//             emergency_contact_name, emergency_contact_mobile,
-//             profile_photo, aadhaar_photo, pan_photo,
-//             driving_license_photo, vehicle_rc_photo, status
-//         } = req.body;
-
-//         if (!user_id) {
-//             return res.status(400).json({ success: false, message: 'user_id is required' });
-//         }
-
-//         if (name) {
-//             await db.query('UPDATE users SET name = ? WHERE id = ?', [name, user_id]);
-//         }
-
-//         const [result] = await db.query(
-//             `UPDATE delivery_boys
-//              SET mobile = ?, alternate_mobile = ?, address = ?, city = ?, state = ?, pincode = ?,
-//                  dob = ?, gender = ?, aadhaar_number = ?, pan_number = ?, driving_license_number = ?,
-//                  vehicle_type = ?, vehicle_number = ?, joining_date = ?,
-//                  emergency_contact_name = ?, emergency_contact_mobile = ?,
-//                  profile_photo = ?, aadhaar_photo = ?, pan_photo = ?,
-//                  driving_license_photo = ?, vehicle_rc_photo = ?, status = ?
-//              WHERE user_id = ?`,
-//             [
-//                 mobile, alternate_mobile || null, address, city, state, pincode,
-//                 dob || null, gender || 'Male',
-//                 aadhaar_number, pan_number || null, driving_license_number,
-//                 vehicle_type, vehicle_number, joining_date,
-//                 emergency_contact_name || null, emergency_contact_mobile || null,
-//                 profile_photo || null, aadhaar_photo || null, pan_photo || null,
-//                 driving_license_photo || null, vehicle_rc_photo || null,
-//                 status || 'active',
-//                 user_id
-//             ]
-//         );
-
-//         if (result.affectedRows === 0) {
-//             return res.status(404).json({ success: false, message: 'Delivery boy not found' });
-//         }
-
-//         res.status(200).json({ success: true, message: 'Delivery boy updated successfully!' });
-//     } catch (err) {
-//         console.error('Update delivery boy error:', err);
-//         res.status(500).json({ success: false, message: 'Failed to update delivery boy' });
-//     }
-// };
-
-// // Delete delivery boy
-// exports.deleteDeliveryBoy = async (req, res) => {
-//     try {
-//         const { id } = req.params;
-//         const [result] = await db.query(
-//             `DELETE FROM users WHERE id = ? AND role = 'delivery_boy'`,
-//             [id]
-//         );
-//         if (result.affectedRows === 0) {
-//             return res.status(404).json({ success: false, message: 'Delivery boy not found' });
-//         }
-//         res.status(200).json({ success: true, message: 'Delivery boy removed' });
-//     } catch (err) {
-//         console.error('Delete delivery boy error:', err);
-//         res.status(500).json({ success: false, message: 'Failed to delete delivery boy' });
-//     }
-// };
-
-/**
- * 8. Update Delivery Boy Status (Accept / Reject)
- * URL Target: POST /api/auth/rest_api_update_delivery_boy_status
- */
+//==========================================================================
+// 13. Update Delivery Boy Status (Accept / Reject)
+//URL Target: POST /api/auth/rest_api_update_delivery_boy_status
+//==========================================================================
 exports.updateDeliveryBoyStatus = async (req, res) => {
     try {
         const { user_id, status } = req.body;
