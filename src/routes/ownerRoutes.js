@@ -3,6 +3,8 @@ const router = express.Router();
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const cloudinary = require("cloudinary").v2;
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 
 // Middleware
 const auth = require("../middleware/authMiddleware");
@@ -25,22 +27,42 @@ const notificationController = require("../controllers/notificationController");
 /* ============================================================================
    1) MULTER CONFIGURATION
 ============================================================================ */
-const uploadDir = path.join(__dirname, "../../uploads");
+let storage;
 
-// Create uploads folder if it does not exist
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+
+  storage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+      folder: 'electronic-shop-uploads',
+      allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
+    },
+  });
+  console.log("☁️ Multer configured to upload to Cloudinary");
+} else {
+  const uploadDir = path.join(__dirname, "../../uploads");
+
+  // Create uploads folder if it does not exist
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+
+  storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+      cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+      const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
+    },
+  });
+  console.log("📁 Cloudinary credentials missing. Multer configured to upload to Local Disk.");
 }
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
-});
 
 const upload = multer({ storage });
 
