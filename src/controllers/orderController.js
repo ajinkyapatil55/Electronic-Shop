@@ -105,6 +105,8 @@ exports.createOrder = async (req, res) => {
       appliedCoupon = coupon;
     }
 
+    const offerAmount = appliedCoupon ? parseFloat(appliedCoupon.discount_amount) : 0.00;
+
     // 3. Step A: Write core master order entry header record
     const insertOrderSql = `
       INSERT INTO orders (
@@ -117,11 +119,12 @@ exports.createOrder = async (req, res) => {
         city,
         pincode,
         total_amount,
+        offer_amount,
         coupon_code,
         status,
         payment_status
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending')
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending')
     `;
 
     const [orderResult] = await connection.execute(insertOrderSql, [
@@ -134,6 +137,7 @@ exports.createOrder = async (req, res) => {
       city,
       pincode,
       grossAmount,
+      offerAmount,
       appliedCoupon ? appliedCoupon.code : null
     ]);
 
@@ -315,6 +319,8 @@ exports.getAllOrders = async (req, res) => {
           user_id: row.user_id,
           payment_method: row.payment_method,
           total_amount: row.total_amount,
+          offer_amount: row.offer_amount,
+          coupon_code: row.coupon_code,
           full_name: row.full_name,
           phone: row.phone,
           email: row.email,
@@ -385,6 +391,8 @@ exports.getUserOrders = async (req, res) => {
           user_id: row.user_id,
           payment_method: row.payment_method,
           total_amount: row.total_amount,
+          offer_amount: row.offer_amount,
+          coupon_code: row.coupon_code,
           full_name: row.full_name,
           phone: row.phone,
           email: row.email,
@@ -512,6 +520,8 @@ exports.getAllOrdersAdmin = async (req, res) => {
           user_id: row.user_id,
           payment_method: row.payment_method,
           total_amount: row.total_amount,
+          offer_amount: row.offer_amount,
+          coupon_code: row.coupon_code,
           full_name: row.full_name,
           phone: row.phone,
           email: row.email,
@@ -903,7 +913,8 @@ exports.getShippedOrdersForDelivery = async (req, res) => {
           city: row.city,
           pincode: row.pincode,
           total_amount: row.total_amount,
-          offer_amount: row.offer_amount,          
+          offer_amount: row.offer_amount,
+          coupon_code: row.coupon_code,
           delivery_charges: row.delivery_charges,  
           status: row.status,
           payment_status: row.payment_status,      
