@@ -602,6 +602,9 @@ exports.requestDeliveryCompletionOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: "A valid order is required." });
     }
 
+    // Ensure table exists
+    await ensureDeliveryOtpTable();
+
     const [orders] = await db.execute(
       `SELECT o.id, o.email, o.full_name
        FROM orders o
@@ -613,33 +616,50 @@ exports.requestDeliveryCompletionOtp = async (req, res) => {
     if (orders.length === 0) {
       return res.status(403).json({ success: false, message: "This delivery is not available for completion." });
     }
-    if (!orders[0].email) {
+
+    const order = orders[0];
+    if (!order.email) {
       return res.status(400).json({ success: false, message: "The customer does not have an email address for verification." });
     }
 
-    const otp = crypto.randomInt(100000, 1000000).toString();
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const codeHash = crypto.createHash('sha256').update(otp).digest('hex');
-    await ensureDeliveryOtpTable();
+    
+    // Set expiration time (10 minutes)
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    // Save/Update OTP Hash in MySQL table
     await db.execute(
       `INSERT INTO delivery_completion_otps (order_id, code_hash, expires_at, attempts)
-       VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE), 0)
-       ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), expires_at = VALUES(expires_at), attempts = 0`,
-      [orderId, codeHash]
+       VALUES (?, ?, ?, 0)
+       ON DUPLICATE KEY UPDATE 
+         code_hash = VALUES(code_hash),
+         expires_at = VALUES(expires_at),
+         attempts = 0,
+         updated_at = CURRENT_TIMESTAMP`,
+      [orderId, codeHash, expiresAt]
     );
 
+    // Send OTP via Email
     const emailResult = await sendDeliveryCompletionOtpEmail({
-      email: orders[0].email,
-      customerName: orders[0].full_name,
-      orderId,
-      otp,
+      email: order.email,
+      customerName: order.full_name || 'Customer',
+      orderId: orderId,
+      otp: otp
     });
 
-    if (!emailResult.sent) {
-      await db.execute(`DELETE FROM delivery_completion_otps WHERE order_id = ? AND code_hash = ?`, [orderId, codeHash]);
+    if (emailResult && emailResult.sent === false) {
+      await db.execute(`DELETE FROM delivery_completion_otps WHERE order_id = ?`, [orderId]);
       return res.status(502).json({ success: false, message: "Could not send the verification email. Please try again." });
     }
 
-    return res.status(200).json({ success: true, message: "Verification code sent to the customer's email.", expiresInMinutes: 10 });
+    return res.status(200).json({
+      success: true,
+      message: "Verification code sent to the customer's email.",
+      expiresInMinutes: 10
+    });
+
   } catch (error) {
     console.error("Delivery OTP request error:", error);
     return res.status(500).json({ success: false, message: "Could not request the delivery verification code." });
@@ -753,3 +773,44 @@ exports.updateDeliveryBoyStatus = async (req, res) => {
     }
 };
 
+
+//==========================================================================
+// 14. Get All Assigned Deliveries (Admin Context)
+//==========================================================================
+exports.getAssignedDeliveries = async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        ad.id AS assignment_id,
+        ad.order_id,
+        ad.delivery_boy_id,
+        ad.assignment_status AS status,
+        ad.assigned_at,
+        o.full_name AS customerName,
+        o.phone AS customerPhone,
+        o.address AS customerAddress,
+        o.total_amount,
+        u.name AS deliveryBoyName,
+        db.mobile AS deliveryBoyPhone
+      FROM assign_delivery ad
+      LEFT JOIN orders o ON ad.order_id = o.id
+      LEFT JOIN users u ON ad.delivery_boy_id = u.id
+      LEFT JOIN delivery_boys db ON db.user_id = u.id
+      ORDER BY ad.id DESC
+    `;
+
+    const [rows] = await db.execute(query);
+
+    return res.status(200).json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    console.error("Fetch assigned deliveries error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch assigned deliveries records.",
+      error: error.message
+    });
+  }
+};
