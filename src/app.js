@@ -236,6 +236,18 @@ if (fs.existsSync(distPath)) {
     // console.log("✅ React dist folder found and served");
 }
 
+app.get("/api/debug-storage", (req, res) => {
+    res.json({
+        success: true,
+        storage_type: (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) ? "Cloudinary" : "Local Disk Storage",
+        env_details: {
+            CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME ? `Present (${process.env.CLOUDINARY_CLOUD_NAME.slice(0, 3)}...)` : "Missing",
+            CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY ? "Present" : "Missing",
+            CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET ? "Present" : "Missing"
+        }
+    });
+});
+
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/products", ownerRoutes);
