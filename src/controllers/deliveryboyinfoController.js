@@ -7,8 +7,8 @@ const { sendDeliveryCompletionOtpEmail } = require("../services/orderEmailServic
 
 const getUploadedFilePath = (file) => {
     if (!file) return null;
-    if (file.path && (file.path.startsWith('http://') || file.path.startsWith('https://'))) {
-        return file.path;
+    if (file.buffer) {
+        return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
     }
     return `uploads/${file.filename}`;
 };

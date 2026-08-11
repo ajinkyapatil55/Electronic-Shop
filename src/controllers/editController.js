@@ -38,7 +38,9 @@ exports.updateProduct = async (req, res) => {
 
         // 3. Append newly uploaded images array parsed via req.files (if any)
         if (req.files && req.files.length > 0) {
-            const newUploadedFiles = req.files.map(file => (file.path && (file.path.startsWith('http://') || file.path.startsWith('https://'))) ? file.path : file.filename);
+            const newUploadedFiles = req.files.map(file => {
+                return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+            });
             finalImagesArray = [...finalImagesArray, ...newUploadedFiles];
         }
 
