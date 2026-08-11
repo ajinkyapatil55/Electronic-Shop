@@ -5,6 +5,14 @@ const db = require("../config/db");
 const notificationService = require('../services/notificationService');
 const { sendDeliveryCompletionOtpEmail } = require("../services/orderEmailService");
 
+const getUploadedFilePath = (file) => {
+    if (!file) return null;
+    if (file.path && (file.path.startsWith('http://') || file.path.startsWith('https://'))) {
+        return file.path;
+    }
+    return `uploads/${file.filename}`;
+};
+
 let deliveryOtpTablePromise;
 
 function ensureDeliveryOtpTable() {
@@ -105,11 +113,11 @@ exports.saveDeliveryBoyProfileDetails = async (req, res) => {
             emergency_contact_name, emergency_contact_mobile
         } = req.body;
 
-        const profile_photo = req.files?.['profile_photo'] ? `uploads/${req.files['profile_photo'][0].filename}` : req.body.profile_photo;
-        const aadhaar_photo = req.files?.['aadhaar_photo'] ? `uploads/${req.files['aadhaar_photo'][0].filename}` : req.body.aadhaar_photo;
-        const pan_photo = req.files?.['pan_photo'] ? `uploads/${req.files['pan_photo'][0].filename}` : req.body.pan_photo;
-        const driving_license_photo = req.files?.['driving_license_photo'] ? `uploads/${req.files['driving_license_photo'][0].filename}` : req.body.driving_license_photo;
-        const vehicle_rc_photo = req.files?.['vehicle_rc_photo'] ? `uploads/${req.files['vehicle_rc_photo'][0].filename}` : req.body.vehicle_rc_photo;
+        const profile_photo = req.files?.['profile_photo'] ? getUploadedFilePath(req.files['profile_photo'][0]) : req.body.profile_photo;
+        const aadhaar_photo = req.files?.['aadhaar_photo'] ? getUploadedFilePath(req.files['aadhaar_photo'][0]) : req.body.aadhaar_photo;
+        const pan_photo = req.files?.['pan_photo'] ? getUploadedFilePath(req.files['pan_photo'][0]) : req.body.pan_photo;
+        const driving_license_photo = req.files?.['driving_license_photo'] ? getUploadedFilePath(req.files['driving_license_photo'][0]) : req.body.driving_license_photo;
+        const vehicle_rc_photo = req.files?.['vehicle_rc_photo'] ? getUploadedFilePath(req.files['vehicle_rc_photo'][0]) : req.body.vehicle_rc_photo;
 
         // Validation for mandatory fields required by schema definitions
         if (!mobile || !address || !city || !state || !pincode) {
@@ -185,11 +193,11 @@ exports.registerDeliveryBoy = async (req, res) => {
         emergency_contact_name, emergency_contact_mobile
     } = req.body;
 
-    const profile_photo = req.files?.['profile_photo'] ? `uploads/${req.files['profile_photo'][0].filename}` : req.body.profile_photo;
-    const aadhaar_photo = req.files?.['aadhaar_photo'] ? `uploads/${req.files['aadhaar_photo'][0].filename}` : req.body.aadhaar_photo;
-    const pan_photo = req.files?.['pan_photo'] ? `uploads/${req.files['pan_photo'][0].filename}` : req.body.pan_photo;
-    const driving_license_photo = req.files?.['driving_license_photo'] ? `uploads/${req.files['driving_license_photo'][0].filename}` : req.body.driving_license_photo;
-    const vehicle_rc_photo = req.files?.['vehicle_rc_photo'] ? `uploads/${req.files['vehicle_rc_photo'][0].filename}` : req.body.vehicle_rc_photo;
+    const profile_photo = req.files?.['profile_photo'] ? getUploadedFilePath(req.files['profile_photo'][0]) : req.body.profile_photo;
+    const aadhaar_photo = req.files?.['aadhaar_photo'] ? getUploadedFilePath(req.files['aadhaar_photo'][0]) : req.body.aadhaar_photo;
+    const pan_photo = req.files?.['pan_photo'] ? getUploadedFilePath(req.files['pan_photo'][0]) : req.body.pan_photo;
+    const driving_license_photo = req.files?.['driving_license_photo'] ? getUploadedFilePath(req.files['driving_license_photo'][0]) : req.body.driving_license_photo;
+    const vehicle_rc_photo = req.files?.['vehicle_rc_photo'] ? getUploadedFilePath(req.files['vehicle_rc_photo'][0]) : req.body.vehicle_rc_photo;
 
     if (!name || !email || !password || !confirmPassword) {
         return res.status(400).json({ success: false, message: 'Name, email and password are required' });

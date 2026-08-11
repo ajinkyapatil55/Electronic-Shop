@@ -1,6 +1,5 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
@@ -22,27 +21,7 @@ const addressController = require("../controllers/addressController");
 const deliveryboyinfoController = require("../controllers/deliveryboyinfoController");
 const notificationController = require("../controllers/notificationController");
 
-/* ============================================================================
-   1) MULTER CONFIGURATION
-============================================================================ */
-const uploadDir = path.join(__dirname, "../../uploads");
-
-// Create uploads folder if it does not exist
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
-});
-
-const upload = multer({ storage });
+const upload = require("../config/multer");
 
 /* ============================================================================
    2) PRODUCT ROUTES
