@@ -239,12 +239,8 @@ if (fs.existsSync(distPath)) {
 app.get("/api/debug-storage", (req, res) => {
     res.json({
         success: true,
-        storage_type: (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) ? "Cloudinary" : "Local Disk Storage",
-        env_details: {
-            CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME ? `Present (${process.env.CLOUDINARY_CLOUD_NAME.slice(0, 3)}...)` : "Missing",
-            CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY ? "Present" : "Missing",
-            CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET ? "Present" : "Missing"
-        }
+        storage_type: "In-Memory Base64 Storage",
+        info: "All uploaded product and delivery boy images are stored directly in the database as persistent Base64 strings."
     });
 });
 
