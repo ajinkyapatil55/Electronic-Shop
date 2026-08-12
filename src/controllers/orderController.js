@@ -356,8 +356,9 @@ exports.getAllOrders = async (req, res) => {
   }
 };
 
+
 // =========================================================================
-// GET SPECIFIC SECURE LOGGED-IN USER ORDERS (SECURED) — unchanged
+// GET SPECIFIC SECURE LOGGED-IN USER ORDERS (SECURED)
 // =========================================================================
 exports.getUserOrders = async (req, res) => {
   const authenticatedUserId = req.user?.id || req.user?.userId;
@@ -383,10 +384,12 @@ exports.getUserOrders = async (req, res) => {
 
     const [rows] = await db.execute(query, [authenticatedUserId]);
 
-    const ordersMap = {};
+    // USING Map TO PRESERVE DESCENDING ORDER (Newest first)
+    const ordersMap = new Map();
+
     for (const row of rows) {
-      if (!ordersMap[row.id]) {
-        ordersMap[row.id] = {
+      if (!ordersMap.has(row.id)) {
+        ordersMap.set(row.id, {
           id: row.id,
           user_id: row.user_id,
           payment_method: row.payment_method,
@@ -404,11 +407,11 @@ exports.getUserOrders = async (req, res) => {
           created_at: row.created_at,
           tracking_reference: row.tracking_reference,
           items: []
-        };
+        });
       }
 
       if (row.item_id) {
-        ordersMap[row.id].items.push({
+        ordersMap.get(row.id).items.push({
           id: row.item_id,
           product_id: row.product_id,
           quantity: row.quantity,
@@ -421,7 +424,7 @@ exports.getUserOrders = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      orders: Object.values(ordersMap)
+      orders: Array.from(ordersMap.values()) // Preserves SQL ORDER BY o.id DESC
     });
 
   } catch (error) {
@@ -436,67 +439,6 @@ exports.getUserOrders = async (req, res) => {
 // =========================================================================
 // GET ALL ORDERS (Admin overview) — unchanged
 // =========================================================================
-// exports.getAllOrdersAdmin = async (req, res) => {
-//   try {
-//     const query = `
-//       SELECT o.*, oi.id as item_id, oi.product_id, oi.quantity, oi.price as item_price, 
-//              pl.tracking_reference, p.name as product_name, p.image_url as product_image
-//       FROM orders o
-//       LEFT JOIN order_items oi ON o.id = oi.order_id
-//       LEFT JOIN payment_logs pl ON o.id = pl.order_id
-//       LEFT JOIN products p ON oi.product_id = p.id
-//       ORDER BY o.id DESC
-//     `;
-//     const [rows] = await db.execute(query);
-
-//     const ordersMap = {};
-
-//     for (const row of rows) {
-//       if (!ordersMap[row.id]) {
-//         ordersMap[row.id] = {
-//           id: row.id,
-//           user_id: row.user_id,
-//           payment_method: row.payment_method,
-//           total_amount: row.total_amount,
-//           full_name: row.full_name,
-//           phone: row.phone,
-//           email: row.email,
-//           address: row.address,
-//           city: row.city,
-//           pincode: row.pincode,
-//           status: row.status,
-//           payment_status: row.payment_status,
-//           created_at: row.created_at,
-//           tracking_reference: row.tracking_reference,
-//           items: []
-//         };
-//       }
-
-//       if (row.item_id) {
-//         ordersMap[row.id].items.push({
-//           id: row.item_id,
-//           product_id: row.product_id,
-//           quantity: row.quantity,
-//           price: row.item_price,
-//           name: row.product_name,
-//           image_url: row.product_image
-//         });
-//       }
-//     }
-
-//     return res.status(200).json({
-//       success: true,
-//       orders: Object.values(ordersMap)
-//     });
-//   } catch (error) {
-//     console.error("[ADMIN ORDERS DATA ERROR] Failed to fetch system orders registry:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error while retrieving structural records for orders registry."
-//     });
-//   }
-// };
-
 
 exports.getAllOrdersAdmin = async (req, res) => {
   try {
@@ -809,69 +751,6 @@ exports.cancelOrder = async (req, res) => {
 // =========================================================================
 // GET ORDER FROM ONLY STATUS ARE 'SHIPPED' THIS ONLY FETCH TO THE DELIVERY BOY
 // =========================================================================
-// exports.getShippedOrdersForDelivery = async (req, res) => {
-//   try {
-//     const query = `
-//       SELECT o.*, oi.id as item_id, oi.product_id, oi.quantity, oi.price as item_price, 
-//              pl.tracking_reference, p.name as product_name, p.image_url as product_image
-//       FROM orders o
-//       LEFT JOIN order_items oi ON o.id = oi.order_id
-//       LEFT JOIN payment_logs pl ON o.id = pl.order_id
-//       LEFT JOIN products p ON oi.product_id = p.id
-//       WHERE o.status = 'SHIPPED'
-//       ORDER BY o.id DESC
-//     `;
-//     const [rows] = await db.execute(query);
-
-//     const ordersMap = {};
-
-//     for (const row of rows) {
-//       if (!ordersMap[row.id]) {
-//         ordersMap[row.id] = {
-//           id: row.id,
-//           user_id: row.user_id,
-//           payment_method: row.payment_method,
-//           total_amount: row.total_amount,
-//           full_name: row.full_name,
-//           phone: row.phone,
-//           email: row.email,
-//           address: row.address,
-//           city: row.city,
-//           pincode: row.pincode,
-//           status: row.status,
-//           payment_status: row.payment_status,
-//           created_at: row.created_at,
-//           tracking_reference: row.tracking_reference,
-//           items: []
-//         };
-//       }
-
-//       if (row.item_id) {
-//         ordersMap[row.id].items.push({
-//           id: row.item_id,
-//           product_id: row.product_id,
-//           quantity: row.quantity,
-//           price: row.item_price,
-//           name: row.product_name,
-//           image_url: row.product_image
-//         });
-//       }
-//     }
-
-//     return res.status(200).json({
-//       success: true,
-//       orders: Object.values(ordersMap)
-//     });
-//   } catch (error) {
-//     console.error("[ADMIN ORDERS DATA ERROR] Failed to fetch system orders registry:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error while retrieving structural records for orders registry."
-//     });
-//   }
-// };
-
-
 exports.getShippedOrdersForDelivery = async (req, res) => {
   try {
     // Include unassigned shipped orders and orders whose latest delivery assignment was rejected.
