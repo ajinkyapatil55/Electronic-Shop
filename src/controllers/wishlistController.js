@@ -4,19 +4,12 @@ const db = require('../config/db'); // Path to your MySQL connection pool
 // 1. GET ALL WISHLIST ITEMS FOR LOGGED IN USER
 // =========================================================================
 exports.getUserWishlist = async (req, res) => {
-    // console.log("\n==============================================");
-    // console.log("[WISHLIST FETCH PIPELINE] Incoming data retrieval request.");
-    // console.log("[WISHLIST FETCH PIPELINE] User Session Decoded Context:", req.user);
-    // console.log("==============================================");
-
   const userId = req.user?.id || req.user?.ID || req.user?.user_id;
 
-  // Structural User Authentication Validation
   if (!userId) {
-    //console.error("[WISHLIST FETCH ERROR] Malformed user session token context parameters.");
     return res.status(400).json({
       success: false,
-      message: "Malformed user session token context parameters. Authentication failed."
+      message: "Malformed user session token context parameters."
     });
   }
 
@@ -28,24 +21,57 @@ exports.getUserWishlist = async (req, res) => {
       p.price,
       p.image_url,
       p.category,
-      p.stock
+      p.stock,
+      p.description,
+      COALESCE(rv.average_rating, 0) AS average_rating,
+      COALESCE(rv.total_reviews, 0) AS total_reviews
     FROM wishlist w
     INNER JOIN products p ON w.product_id = p.id
+    LEFT JOIN (
+      SELECT
+        product_id,
+        ROUND(AVG(rating), 1) AS average_rating,
+        COUNT(*) AS total_reviews
+      FROM product_reviews
+      WHERE status = 'active'
+      GROUP BY product_id
+    ) rv ON rv.product_id = p.id
     WHERE w.user_id = ?
     ORDER BY w.created_at DESC
   `;
 
   try {
     const [rows] = await db.query(query, [userId]);
-    //console.log(`[WISHLIST FETCH SUCCESS] Found ${rows.length} records for User ID: ${userId}`);
+    
+    // Map rows to include images as parsed array format for front-end rendering
+    const formattedWishlist = rows.map(item => {
+      let images = [];
+      if (item.image_url) {
+        if (typeof item.image_url === 'string' && item.image_url.trim().startsWith('[')) {
+          try {
+            images = JSON.parse(item.image_url);
+          } catch (e) {
+            images = [item.image_url];
+          }
+        } else {
+          images = [item.image_url];
+        }
+      }
+      return {
+        ...item,
+        images: images,
+        average_rating: Number(item.average_rating || 0),
+        total_reviews: Number(item.total_reviews || 0)
+      };
+    });
     
     return res.status(200).json({
       success: true,
       message: "Wishlist records loaded seamlessly.",
-      wishlist: rows
+      wishlist: formattedWishlist
     });
   } catch (error) {
-    //console.error("[WISHLIST FETCH EXCEPTION] Database error stack trace:", error);
+    console.error("[WISHLIST FETCH EXCEPTION] Database error:", error);
     return res.status(500).json({ 
       success: false, 
       message: "Internal server operational fault while loading wishlist records." 

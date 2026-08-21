@@ -20,6 +20,8 @@ const reviewController = require("../controllers/reviewController");
 const addressController = require("../controllers/addressController");
 const deliveryboyinfoController = require("../controllers/deliveryboyinfoController");
 const notificationController = require("../controllers/notificationController");
+const schemaController = require("../controllers/schemaController");
+const userController = require("../controllers/userController");
 
 const upload = require("../config/multer");
 
@@ -157,6 +159,17 @@ router.delete('/cancel_order/:orderId', auth, orderController.cancelOrder);
 router.get("/rest_api_get_shipped_orders", auth, orderController.getShippedOrdersForDelivery);
 
 
+// Route matching: GET /api/orders/rest_api_get_order_details/:orderId
+router.get('/rest_api_get_order_details/:orderId', auth, orderController.getOrderDetails1);
+
+// Route matching: POST /api/orders/rest_api_modify_order_details
+router.post('/rest_api_modify_order_details', auth, orderController.modifyOrderDetails);
+
+// Route matching: GET /api/rest_api_get_all_addresses
+// (If mounted at root /api level)
+router.get('/rest_api_get_all_addresses', auth, orderController.getAllAddresses);
+
+
 /* ============================================================================
    8) WISHLIST ROUTES
 ============================================================================ */
@@ -255,6 +268,32 @@ router.post("/verify_delivery_completion_otp", auth, deliveryboyinfoController.v
 
 // Get all orders assigned to a specific delivery boy with status filter
 router.get("/rest_api_get_assigned_deliveries", auth, deliveryboyinfoController.getAssignedDeliveries);
+
+
+
+//===================================================================
+// 12) SCHEMA DUMP ROUTE
+//===================================================================
+// Export structure-only (--no-data) SQL schema definitions
+router.post("/rest_api_generate_schema", auth, authorizeRoles("admin"), schemaController.generateSchemaDump);
+
+
+//===================================================================
+// 13) USER PROFILE ROUTES
+//===================================================================
+// Get user profile details (Supports both default profile & specific user ID)
+router.get("/rest_api_get_profile", auth, userController.getUserProfile);
+router.get("/rest_api_get_profile/:id", auth, userController.getUserProfile);
+
+// Update user details (Name, Email, Phone, Address, Profile Image)
+router.post("/rest_api_update_profile", auth, upload.single("profile_image"), userController.updateUserProfile);
+
+// Change user password
+router.post("/rest_api_change_password", auth, userController.changePassword);
+
+// Get all users (Admin only)
+// router.get("/rest_api_get_all_users", auth, authorizeRoles("admin"), userController.getAllUsers);
+
 
 
 module.exports = router;

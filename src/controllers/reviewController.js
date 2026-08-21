@@ -230,15 +230,6 @@ exports.getProductReviews = async (req, res) => {
 // ==========================================================
 // 2) ADD REVIEW OR UPDATE EXISTING REVIEW
 // API: POST /api/reviews/rest_api_submit_review
-// Used by frontend handleSubmit()
-// Body:
-// {
-//   product_id,
-//   user_id,
-//   rating,
-//   review_title,
-//   review_text
-// }
 // ==========================================================
 exports.submitReview = async (req, res) => {
     try {
@@ -360,7 +351,7 @@ exports.submitReview = async (req, res) => {
 
             if (req.file) {
                 queryStr += `, review_image = ?`;
-                const fileVal = (req.file.path && (req.file.path.startsWith('http://') || req.file.path.startsWith('https://'))) ? req.file.path : `uploads/${req.file.filename}`;
+                const fileVal = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
                 queryParams.push(fileVal);
             }
 
@@ -381,7 +372,7 @@ exports.submitReview = async (req, res) => {
 
         // ---------------- INSERT NEW REVIEW ----------------
         const review_image = req.file 
-            ? ((req.file.path && (req.file.path.startsWith('http://') || req.file.path.startsWith('https://'))) ? req.file.path : `uploads/${req.file.filename}`)
+            ? `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`
             : null;
         const [insertResult] = await db.query(
             `INSERT INTO product_reviews

@@ -253,6 +253,7 @@ app.use("/api/orders", ownerRoutes);
 app.use("/api/v1/user", ownerRoutes);
 app.use("/api/reviews", ownerRoutes);
 app.use("/api", ownerRoutes);
+app.use("/api/schema", ownerRoutes);
 
 // Catch-all route to serve React's index.html for any frontend client routes
 app.use((req, res, next) => {

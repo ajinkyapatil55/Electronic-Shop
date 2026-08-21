@@ -122,9 +122,11 @@ exports.createOrder = async (req, res) => {
         offer_amount,
         coupon_code,
         status,
-        payment_status
+        payment_status,
+        scheduled_date,
+        time_slot
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending')
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', DATE_ADD(CURDATE(), INTERVAL 4 DAY), '10:00 AM - 06:00 PM')
     `;
 
     const [orderResult] = await connection.execute(insertOrderSql, [
@@ -406,6 +408,8 @@ exports.getUserOrders = async (req, res) => {
           payment_status: row.payment_status,
           created_at: row.created_at,
           tracking_reference: row.tracking_reference,
+          scheduled_date: row.scheduled_date,
+          time_slot: row.time_slot,
           items: []
         });
       }
@@ -433,6 +437,177 @@ exports.getUserOrders = async (req, res) => {
       success: false,
       message: "Server error while retrieving your past transactions."
     });
+  }
+};
+
+// =========================================================================
+// GET SINGLE ORDER DETAILS (for modify order screen)
+// =========================================================================
+exports.getOrderDetails = async (req, res) => {
+  const { orderId } = req.params;
+  const authenticatedUserId = req.user?.id || req.user?.userId || req.user?.user_id;
+
+  if (!authenticatedUserId) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized: Access denied."
+    });
+  }
+
+  if (!orderId || isNaN(parseInt(orderId, 10))) {
+    return res.status(400).json({
+      success: false,
+      message: "A valid numeric order ID is required."
+    });
+  }
+
+  try {
+    const [rows] = await db.execute(
+      `SELECT o.id, o.user_id, o.status, o.address, o.created_at,
+              om.meta_value AS scheduled_date
+       FROM orders
+       LEFT JOIN order_meta om
+         ON om.order_id = o.id AND om.meta_key = 'scheduled_date'
+       WHERE o.id = ? AND o.user_id = ?
+       LIMIT 1`,
+      [orderId, authenticatedUserId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found."
+      });
+    }
+
+    const row = rows[0];
+    return res.status(200).json({
+      success: true,
+      order: {
+        id: row.id,
+        user_id: row.user_id,
+        status: row.status,
+        address: row.address,
+        delivery_address: row.address,
+        scheduled_date: row.scheduled_date || null,
+        time_slot: row.time_slot || null,
+        created_at: row.created_at
+      }
+    });
+  } catch (error) {
+    console.error("[GET ORDER DETAILS ERROR]", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching order details."
+    });
+  }
+};
+
+// =========================================================================
+// MODIFY ORDER DETAILS (user)
+// Business rules:
+// - shipped: allow date only
+// - pending/processing: allow address + date (+ time slot)
+// =========================================================================
+exports.modifyOrderDetails = async (req, res) => {
+  const authenticatedUserId = req.user?.id || req.user?.userId || req.user?.user_id;
+  const { order_id, delivery_address, scheduled_date } = req.body || {};
+
+  if (!authenticatedUserId) {
+    return res.status(401).json({ success: false, message: "Unauthorized: Access denied." });
+  }
+
+  if (!order_id || isNaN(parseInt(order_id, 10))) {
+    return res.status(400).json({ success: false, message: "A valid order_id is required." });
+  }
+
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const [rows] = await connection.execute(
+      `SELECT id, user_id, status, address
+       FROM orders
+       WHERE id = ?
+       FOR UPDATE`,
+      [order_id]
+    );
+
+    if (rows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: "Order not found." });
+    }
+
+    const order = rows[0];
+    if (Number(order.user_id) !== Number(authenticatedUserId)) {
+      await connection.rollback();
+      return res.status(403).json({ success: false, message: "Access denied for this order." });
+    }
+
+    const currentStatus = String(order.status || "").toLowerCase().trim();
+    const isShipped = currentStatus === "shipped";
+    const canEditAddress = currentStatus === "pending" || currentStatus === "processing";
+
+    if (!isShipped && !canEditAddress) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `Order cannot be modified in "${order.status}" status.`
+      });
+    }
+
+    const nextAddress = canEditAddress ? String(delivery_address || "").trim() : order.address;
+    if (canEditAddress && !nextAddress) {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: "delivery_address is required for this status." });
+    }
+
+    // orders table in this project does not contain scheduled_date/time_slot columns.
+    // We store reschedule date in order_meta and keep address in orders.
+    await connection.execute(
+      `UPDATE orders
+       SET address = ?
+       WHERE id = ?`,
+      [nextAddress, order_id]
+    );
+
+    if (scheduled_date) {
+      await connection.execute(
+        `CREATE TABLE IF NOT EXISTS order_meta (
+          order_id INT NOT NULL,
+          meta_key VARCHAR(100) NOT NULL,
+          meta_value TEXT NULL,
+          updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (order_id, meta_key),
+          CONSTRAINT fk_order_meta_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`
+      );
+
+      await connection.execute(
+        `INSERT INTO order_meta (order_id, meta_key, meta_value)
+         VALUES (?, 'scheduled_date', ?)
+         ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)`,
+        [order_id, String(scheduled_date)]
+      );
+    }
+
+    await connection.commit();
+    return res.status(200).json({
+      success: true,
+      message: "Order details updated successfully."
+    });
+  } catch (error) {
+    if (connection) {
+      try { await connection.rollback(); } catch (rollbackErr) { console.error("[MODIFY ORDER ROLLBACK ERROR]", rollbackErr); }
+    }
+    console.error("[MODIFY ORDER ERROR]", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while updating order details."
+    });
+  } finally {
+    if (connection) connection.release();
   }
 };
 
@@ -842,6 +1017,245 @@ exports.getShippedOrdersForDelivery = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error while retrieving structural records for shipped orders."
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+// =========================================================================
+// GET ORDER DETAILS FOR MODIFY SCREEN (FIXED SQL QUERY)
+// =========================================================================
+exports.getOrderDetails1 = async (req, res) => {
+  const { orderId } = req.params;
+  const authenticatedUserId = req.user?.id || req.user?.userId || req.user?.user_id;
+
+  if (!orderId || isNaN(parseInt(orderId, 10))) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid order ID is required."
+    });
+  }
+
+  try {
+    // FIXED QUERY: Removed 'o.delivery_address' and selected 'o.address'
+    const query = `
+      SELECT 
+        o.id,
+        o.user_id,
+        o.status,
+        o.payment_status,
+        o.total_amount,
+        o.address,
+        o.scheduled_date,
+        o.time_slot,
+        o.created_at
+      FROM orders o
+      WHERE o.id = ?
+    `;
+
+    const [rows] = await db.execute(query, [orderId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `Order #${orderId} not found.`
+      });
+    }
+
+    const order = rows[0];
+
+    // Ownership check
+    if (authenticatedUserId && Number(order.user_id) !== Number(authenticatedUserId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized access to this order."
+      });
+    }
+
+    // Pass address as both 'address' and 'delivery_address' in the response JSON
+    return res.status(200).json({
+      success: true,
+      order: {
+        id: order.id,
+        status: order.status,
+        payment_status: order.payment_status,
+        total_amount: order.total_amount,
+        address: order.address,
+        delivery_address: order.address, // Alias for frontend compatibility
+        scheduled_date: order.scheduled_date || null,
+        time_slot: order.time_slot || null,
+        created_at: order.created_at
+      }
+    });
+
+  } catch (error) {
+    console.error(`[GET ORDER DETAILS ERROR] Order ID ${orderId}:`, error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching order details.",
+      errorDetails: error.message
+    });
+  }
+};
+
+// =========================================================================
+// 2. MODIFY ORDER DETAILS (Matches React Component Submission)
+// Endpoint: POST /api/orders/rest_api_modify_order_details
+// Payload: { order_id, delivery_address, scheduled_date, time_slot }
+// =========================================================================
+exports.modifyOrderDetails = async (req, res) => {
+  const { order_id, delivery_address, scheduled_date, time_slot } = req.body;
+  const authenticatedUserId = req.user?.id || req.user?.userId;
+
+  // Validation
+  if (!order_id) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing order_id in request body."
+    });
+  }
+
+  if (!delivery_address || !delivery_address.trim()) {
+    return res.status(400).json({
+      success: false,
+      message: "Delivery address cannot be empty."
+    });
+  }
+
+  if (!scheduled_date) {
+    return res.status(400).json({
+      success: false,
+      message: "Scheduled delivery date is required."
+    });
+  }
+
+  try {
+    // 1. Fetch current order status first to enforce business constraints
+    const [existingOrders] = await db.execute(
+      `SELECT id, user_id, status FROM orders WHERE id = ?`,
+      [order_id]
+    );
+
+    if (existingOrders.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found."
+      });
+    }
+
+    const currentOrder = existingOrders[0];
+
+    // Optional Security Check
+    if (authenticatedUserId && currentOrder.user_id !== authenticatedUserId) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized to update this order."
+      });
+    }
+
+    const currentStatus = (currentOrder.status || '').toLowerCase().trim();
+
+    // 2. Business Logic Checks
+    // Address updates allowed only when Pending or Processing
+    const canEditAddress = ['pending', 'processing'].includes(currentStatus);
+    // Time slot updates locked if Shipped
+    const isShipped = currentStatus === 'shipped';
+
+    if (!canEditAddress) {
+      return res.status(400).json({
+        success: false,
+        message: `Delivery address cannot be modified for orders in '${currentOrder.status}' status.`
+      });
+    }
+
+    // 3. Execute Update Query
+    let updateQuery;
+    let queryParams;
+
+    if (isShipped) {
+      // If shipped, only update date (leave time_slot unchanged)
+        updateQuery = `
+          UPDATE orders 
+          SET address = ?, scheduled_date = ?, time_slot = ? 
+          WHERE id = ?
+        `;
+      queryParams = [delivery_address.trim(), scheduled_date, order_id];
+    } else {
+      // Update address, date, and time slot
+      updateQuery = `
+        UPDATE orders 
+        SET delivery_address = ?, scheduled_date = ?, time_slot = ? 
+        WHERE id = ?
+      `;
+      queryParams = [delivery_address.trim(), scheduled_date, time_slot || null, order_id];
+    }
+
+    await db.execute(updateQuery, queryParams);
+
+    return res.status(200).json({
+      success: true,
+      message: "Order updated successfully."
+    });
+
+  } catch (error) {
+    console.error(`[MODIFY ORDER ERROR] Order ID ${order_id}:`, error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while updating order details."
+    });
+  }
+};
+
+
+// =========================================================================
+// 3. GET ALL ADDRESSES (Supporting Endpoint for Address Cards)
+// Endpoint: GET /api/rest_api_get_all_addresses
+// =========================================================================
+exports.getAllAddresses = async (req, res) => {
+  const authenticatedUserId = req.user?.id || req.user?.userId;
+
+  if (!authenticatedUserId) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized: User ID missing."
+    });
+  }
+
+  try {
+    const query = `
+      SELECT 
+        id, 
+        user_id, 
+        phone, 
+        address_string AS addressString, 
+        type, 
+        lat, 
+        lng 
+      FROM user_addresses 
+      WHERE user_id = ? 
+      ORDER BY id DESC
+    `;
+
+    const [addresses] = await db.execute(query, [authenticatedUserId]);
+
+    return res.status(200).json({
+      success: true,
+      addresses
+    });
+
+  } catch (error) {
+    console.error(`[GET ADDRESSES ERROR] User ID ${authenticatedUserId}:`, error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching saved addresses."
     });
   }
 };
