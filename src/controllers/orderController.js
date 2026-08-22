@@ -504,110 +504,108 @@ exports.getOrderDetails = async (req, res) => {
 };
 
 // =========================================================================
-// MODIFY ORDER DETAILS (user)
-// Business rules:
-// - shipped: allow date only
-// - pending/processing: allow address + date (+ time slot)
+// MODIFY ORDER DETAILS (Matches DB Table Schema)
+// Endpoint: POST /api/orders/rest_api_modify_order_details
 // =========================================================================
 exports.modifyOrderDetails = async (req, res) => {
+  const { order_id, delivery_address, scheduled_date, time_slot } = req.body;
   const authenticatedUserId = req.user?.id || req.user?.userId || req.user?.user_id;
-  const { order_id, delivery_address, scheduled_date } = req.body || {};
 
-  if (!authenticatedUserId) {
-    return res.status(401).json({ success: false, message: "Unauthorized: Access denied." });
+  if (!order_id) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing order_id in request body."
+    });
   }
 
-  if (!order_id || isNaN(parseInt(order_id, 10))) {
-    return res.status(400).json({ success: false, message: "A valid order_id is required." });
+  if (!delivery_address || !delivery_address.trim()) {
+    return res.status(400).json({
+      success: false,
+      message: "Delivery address cannot be empty."
+    });
   }
 
-  let connection;
+  if (!scheduled_date) {
+    return res.status(400).json({
+      success: false,
+      message: "Scheduled delivery date is required."
+    });
+  }
+
   try {
-    connection = await db.getConnection();
-    await connection.beginTransaction();
-
-    const [rows] = await connection.execute(
-      `SELECT id, user_id, status, address
-       FROM orders
-       WHERE id = ?
-       FOR UPDATE`,
+    // 1. Fetch current order status
+    const [existingOrders] = await db.execute(
+      `SELECT id, user_id, status FROM orders WHERE id = ?`,
       [order_id]
     );
 
-    if (rows.length === 0) {
-      await connection.rollback();
-      return res.status(404).json({ success: false, message: "Order not found." });
-    }
-
-    const order = rows[0];
-    if (Number(order.user_id) !== Number(authenticatedUserId)) {
-      await connection.rollback();
-      return res.status(403).json({ success: false, message: "Access denied for this order." });
-    }
-
-    const currentStatus = String(order.status || "").toLowerCase().trim();
-    const isShipped = currentStatus === "shipped";
-    const canEditAddress = currentStatus === "pending" || currentStatus === "processing";
-
-    if (!isShipped && !canEditAddress) {
-      await connection.rollback();
-      return res.status(400).json({
+    if (existingOrders.length === 0) {
+      return res.status(404).json({
         success: false,
-        message: `Order cannot be modified in "${order.status}" status.`
+        message: "Order not found."
       });
     }
 
-    const nextAddress = canEditAddress ? String(delivery_address || "").trim() : order.address;
-    if (canEditAddress && !nextAddress) {
-      await connection.rollback();
-      return res.status(400).json({ success: false, message: "delivery_address is required for this status." });
+    const currentOrder = existingOrders[0];
+
+    // 2. Ownership Verification
+    if (authenticatedUserId && Number(currentOrder.user_id) !== Number(authenticatedUserId)) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized access to update this order."
+      });
     }
 
-    // orders table in this project does not contain scheduled_date/time_slot columns.
-    // We store reschedule date in order_meta and keep address in orders.
-    await connection.execute(
-      `UPDATE orders
-       SET address = ?
-       WHERE id = ?`,
-      [nextAddress, order_id]
-    );
+    const currentStatus = (currentOrder.status || '').toLowerCase().trim();
 
-    if (scheduled_date) {
-      await connection.execute(
-        `CREATE TABLE IF NOT EXISTS order_meta (
-          order_id INT NOT NULL,
-          meta_key VARCHAR(100) NOT NULL,
-          meta_value TEXT NULL,
-          updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          PRIMARY KEY (order_id, meta_key),
-          CONSTRAINT fk_order_meta_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`
-      );
+    // 3. Status Rules
+    const canEditAddress = ['pending', 'processing'].includes(currentStatus);
+    const canEditTimeSlot = ['pending', 'processing'].includes(currentStatus);
+    const canEditDate = ['pending', 'processing', 'shipped'].includes(currentStatus);
 
-      await connection.execute(
-        `INSERT INTO order_meta (order_id, meta_key, meta_value)
-         VALUES (?, 'scheduled_date', ?)
-         ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)`,
-        [order_id, String(scheduled_date)]
-      );
+    if (!canEditDate) {
+      return res.status(400).json({
+        success: false,
+        message: `Orders in '${currentOrder.status}' status cannot be modified.`
+      });
     }
 
-    await connection.commit();
+    // 4. Construct SQL Query safely according to DB Table Column (`address`)
+    let updateQuery = "";
+    let queryParams = [];
+
+    if (canEditAddress) {
+      // Pending / Processing: Update address, scheduled_date, and time_slot
+      updateQuery = `
+        UPDATE orders 
+        SET address = ?, scheduled_date = ?, time_slot = ? 
+        WHERE id = ?
+      `;
+      queryParams = [delivery_address.trim(), scheduled_date, time_slot || null, order_id];
+    } else if (currentStatus === 'shipped') {
+      // Shipped: Address & Time Slot are locked. Only allow updating scheduled_date
+      updateQuery = `
+        UPDATE orders 
+        SET scheduled_date = ? 
+        WHERE id = ?
+      `;
+      queryParams = [scheduled_date, order_id];
+    }
+
+    const [result] = await db.execute(updateQuery, queryParams);
+
     return res.status(200).json({
       success: true,
-      message: "Order details updated successfully."
+      message: "Order updated successfully."
     });
+
   } catch (error) {
-    if (connection) {
-      try { await connection.rollback(); } catch (rollbackErr) { console.error("[MODIFY ORDER ROLLBACK ERROR]", rollbackErr); }
-    }
-    console.error("[MODIFY ORDER ERROR]", error);
+    console.error(`[MODIFY ORDER ERROR] Order ID ${order_id}:`, error);
     return res.status(500).json({
       success: false,
-      message: "Server error while updating order details."
+      message: "Server error while updating order details.",
+      errorDetails: error.message
     });
-  } finally {
-    if (connection) connection.release();
   }
 };
 
@@ -1107,109 +1105,84 @@ exports.getOrderDetails1 = async (req, res) => {
 };
 
 // =========================================================================
-// 2. MODIFY ORDER DETAILS (Matches React Component Submission)
+// MODIFY ORDER DETAILS (Fixed SQL Column Name)
 // Endpoint: POST /api/orders/rest_api_modify_order_details
-// Payload: { order_id, delivery_address, scheduled_date, time_slot }
 // =========================================================================
 exports.modifyOrderDetails = async (req, res) => {
   const { order_id, delivery_address, scheduled_date, time_slot } = req.body;
-  const authenticatedUserId = req.user?.id || req.user?.userId;
 
-  // Validation
   if (!order_id) {
-    return res.status(400).json({
-      success: false,
-      message: "Missing order_id in request body."
-    });
+    return res.status(400).json({ success: false, message: "Missing order_id." });
   }
 
   if (!delivery_address || !delivery_address.trim()) {
-    return res.status(400).json({
-      success: false,
-      message: "Delivery address cannot be empty."
-    });
+    return res.status(400).json({ success: false, message: "Delivery address cannot be empty." });
   }
 
   if (!scheduled_date) {
-    return res.status(400).json({
-      success: false,
-      message: "Scheduled delivery date is required."
-    });
+    return res.status(400).json({ success: false, message: "Scheduled delivery date is required." });
   }
 
   try {
-    // 1. Fetch current order status first to enforce business constraints
+    // 1. Fetch current order status
     const [existingOrders] = await db.execute(
-      `SELECT id, user_id, status FROM orders WHERE id = ?`,
+      `SELECT id, status FROM orders WHERE id = ?`,
       [order_id]
     );
 
-    if (existingOrders.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Order not found."
-      });
+    if (!existingOrders || existingOrders.length === 0) {
+      return res.status(404).json({ success: false, message: "Order not found." });
     }
 
     const currentOrder = existingOrders[0];
-
-    // Optional Security Check
-    if (authenticatedUserId && currentOrder.user_id !== authenticatedUserId) {
-      return res.status(403).json({
-        success: false,
-        message: "Unauthorized to update this order."
-      });
-    }
-
     const currentStatus = (currentOrder.status || '').toLowerCase().trim();
 
-    // 2. Business Logic Checks
-    // Address updates allowed only when Pending or Processing
-    const canEditAddress = ['pending', 'processing'].includes(currentStatus);
-    // Time slot updates locked if Shipped
-    const isShipped = currentStatus === 'shipped';
+    // 2. Format Date safely to YYYY-MM-DD
+    const cleanDate = new Date(scheduled_date).toISOString().split('T')[0];
 
-    if (!canEditAddress) {
+    let updateQuery = "";
+    let queryParams = [];
+
+    const canEditAddress = ['pending', 'processing'].includes(currentStatus);
+
+    if (canEditAddress) {
+      // FIX: Changed 'delivery_address = ?' to 'address = ?' to match your MySQL table
+      updateQuery = `
+        UPDATE orders 
+        SET address = ?, scheduled_date = ?, time_slot = ? 
+        WHERE id = ?
+      `;
+      queryParams = [delivery_address.trim(), cleanDate, time_slot || null, order_id];
+    } else if (currentStatus === 'shipped') {
+      // Shipped: Address and time_slot are locked, only update date
+      updateQuery = `
+        UPDATE orders 
+        SET scheduled_date = ? 
+        WHERE id = ?
+      `;
+      queryParams = [cleanDate, order_id];
+    } else {
       return res.status(400).json({
         success: false,
-        message: `Delivery address cannot be modified for orders in '${currentOrder.status}' status.`
+        message: `Orders with status '${currentOrder.status}' cannot be modified.`
       });
     }
 
-    // 3. Execute Update Query
-    let updateQuery;
-    let queryParams;
-
-    if (isShipped) {
-      // If shipped, only update date (leave time_slot unchanged)
-        updateQuery = `
-          UPDATE orders 
-          SET address = ?, scheduled_date = ?, time_slot = ? 
-          WHERE id = ?
-        `;
-      queryParams = [delivery_address.trim(), scheduled_date, order_id];
-    } else {
-      // Update address, date, and time slot
-      updateQuery = `
-        UPDATE orders 
-        SET delivery_address = ?, scheduled_date = ?, time_slot = ? 
-        WHERE id = ?
-      `;
-      queryParams = [delivery_address.trim(), scheduled_date, time_slot || null, order_id];
-    }
-
-    await db.execute(updateQuery, queryParams);
+    // 3. Execute query
+    const [result] = await db.execute(updateQuery, queryParams);
 
     return res.status(200).json({
       success: true,
-      message: "Order updated successfully."
+      message: "Order details updated successfully in database.",
+      affectedRows: result.affectedRows
     });
 
   } catch (error) {
     console.error(`[MODIFY ORDER ERROR] Order ID ${order_id}:`, error);
     return res.status(500).json({
       success: false,
-      message: "Server error while updating order details."
+      message: "Database execution failed.",
+      errorDetails: error.message
     });
   }
 };
