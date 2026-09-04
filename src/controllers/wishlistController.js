@@ -146,10 +146,6 @@ exports.addToWishlist = async (req, res) => {
 // 3. DELETE AN ITEM FROM WISHLIST
 // =========================================================================
 exports.deleteWishlistItem = async (req, res) => {
-  // console.log("\n==============================================");
-  // console.log("[WISHLIST DROP PIPELINE] Incoming delete transaction request.");
-  // console.log("[WISHLIST DROP PIPELINE] Raw Body payload:", req.body);
-  // console.log("==============================================");
 
   const userId = req.user?.id || req.user?.ID || req.user?.user_id;
   const { productId } = req.body;
@@ -192,7 +188,7 @@ exports.deleteWishlistItem = async (req, res) => {
     });
 
   } catch (error) {
-    //console.error("[WISHLIST DROP EXCEPTION] Database drop request query failure:", error);
+    // console.error("[WISHLIST DROP EXCEPTION] Database drop request query failure:", error);
     return res.status(500).json({ 
       success: false, 
       message: "Internal server error occurred while performing wishlist drop operation." 
