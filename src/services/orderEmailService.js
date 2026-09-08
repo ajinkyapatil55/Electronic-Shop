@@ -36,6 +36,10 @@ const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: SMTP_PORT,
     secure: SMTP_PORT === 465, // true for 465, false for 587
+    family: 4, // Strictly force IPv4 (prevents ENETUNREACH on cloud environments like Render without IPv6 routes)
+    connectionTimeout: 8000, // Prevent server hanging on cloud environments with blocked SMTP ports
+    greetingTimeout: 8000,
+    socketTimeout: 8000,
     auth: {
         user: SMTP_USER,
         pass: SMTP_PASS,
@@ -46,19 +50,25 @@ const transporter = nodemailer.createTransport({
 });
 
 /* ============================================================================
-   VERIFY SMTP CONNECTION
+   VERIFY SMTP CONNECTION (NON-BLOCKING WITH CLOUD DIAGNOSTICS)
 ============================================================================ */
 
 async function verifySMTP() {
+    if (!SMTP_USER || !SMTP_PASS) {
+        console.warn("⚠️ SMTP credentials not set in environment.");
+        return;
+    }
+
     try {
         await transporter.verify();
         console.log("✅ SMTP Server Connected Successfully");
     } catch (error) {
-        console.error("❌ SMTP Connection Failed");
-        console.error(error.message || error);
+        console.warn("⚠️ SMTP direct connection check:", error.message || error);
+        console.warn("💡 Note: Render Free Tier blocks outbound SMTP ports 25, 465, and 587. For cloud email delivery on Render Free Tier, set BREVO_API_KEY or RESEND_API_KEY in Render environment.");
     }
 }
 
+// Run verification asynchronously without blocking server execution
 verifySMTP();
 
 /* ============================================================================
@@ -467,6 +477,73 @@ function buildOrderEmailText({ order, items }) {
     return lines.join("\n");
 }
 
+async function sendOrderMailUnified({ to, subject, html, text, attachments }) {
+    // 1. Brevo REST API (Port 443 - Works on Render Free Tier)
+    if (process.env.BREVO_API_KEY) {
+        try {
+            const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+                method: "POST",
+                headers: {
+                    "accept": "application/json",
+                    "api-key": process.env.BREVO_API_KEY.trim(),
+                    "content-type": "application/json",
+                },
+                body: JSON.stringify({
+                    sender: {
+                        name: STORE.name,
+                        email: process.env.SMTP_USER || "patilprem1501@gmail.com",
+                    },
+                    to: [{ email: to }],
+                    subject,
+                    htmlContent: html,
+                    textContent: text || undefined,
+                }),
+            });
+            if (res.ok) return { sent: true, provider: "brevo" };
+            const err = await res.json().catch(() => ({}));
+            console.warn("⚠️ Brevo API error in order email:", err);
+        } catch (apiErr) {
+            console.warn("⚠️ Brevo API call failed:", apiErr.message);
+        }
+    }
+
+    // 2. Resend REST API (Port 443 - Works on Render Free Tier)
+    if (process.env.RESEND_API_KEY) {
+        try {
+            const res = await fetch("https://api.resend.com/emails", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${process.env.RESEND_API_KEY.trim()}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    from: process.env.RESEND_FROM || `${STORE.name} <onboarding@resend.dev>`,
+                    to: [to],
+                    subject,
+                    html,
+                    text,
+                }),
+            });
+            if (res.ok) return { sent: true, provider: "resend" };
+            const err = await res.json().catch(() => ({}));
+            console.warn("⚠️ Resend API error in order email:", err);
+        } catch (apiErr) {
+            console.warn("⚠️ Resend API call failed:", apiErr.message);
+        }
+    }
+
+    // 3. Fallback to direct SMTP
+    const info = await transporter.sendMail({
+        from: `"${STORE.name}" <${process.env.SMTP_USER}>`,
+        to,
+        subject,
+        text,
+        html,
+        attachments,
+    });
+    return { sent: true, messageId: info.messageId };
+}
+
 /* ============================================================================
    SEND ORDER EMAIL
 ============================================================================ */
@@ -478,20 +555,15 @@ async function sendOrderConfirmationEmail(orderId) {
         const { order, items } = await getOrderDetailsWithUser(orderId);
 
         if (!order.email) {
-            // console.log("Customer Email Missing.");
             return { sent: false };
         }
 
         const { attachments, imageSrcByIndex } = prepareImageAttachments(items);
 
-
         const html = buildOrderEmailHtml({ order, items, imageSrcByIndex });
         const text = buildOrderEmailText({ order, items });
 
-        // console.log("HTML Generated Successfully");
-
-        const info = await transporter.sendMail({
-            from: `"${STORE.name}" <${process.env.SMTP_USER}>`,
+        const result = await sendOrderMailUnified({
             to: order.email,
             subject: `Order Confirmed - #${order.id} | ${STORE.name}`,
             text,
@@ -501,23 +573,18 @@ async function sendOrderConfirmationEmail(orderId) {
 
         return {
             sent: true,
-            messageId: info.messageId,
+            ...result,
         };
 
     } catch (error) {
-
-       
         console.error("❌ EMAIL SEND FAILED");
         console.error(error);
-    
 
         return {
             sent: false,
             error: error.message,
         };
-
     }
-
 }
 
 
@@ -530,8 +597,7 @@ async function sendDeliveryCompletionOtpEmail({ email, customerName, orderId, ot
     }
 
     try {
-        const info = await transporter.sendMail({
-            from: `"${STORE.name}" <${process.env.SMTP_USER}>`,
+        const result = await sendOrderMailUnified({
             to: email,
             subject: `Delivery verification code for Order #${orderId}`,
             text: `Hello ${customerName || "Customer"},\n\nYour delivery verification code for order #${orderId} is ${otp}.\n\nGive this code only to the delivery person after you have received your order. It expires in 10 minutes.\n\n${STORE.name}`,
@@ -546,7 +612,7 @@ async function sendDeliveryCompletionOtpEmail({ email, customerName, orderId, ot
             `,
         });
 
-        return { sent: true, messageId: info.messageId };
+        return { sent: true, ...result };
     } catch (error) {
         console.error("Delivery OTP email failed:", error.message || error);
         return { sent: false, error: error.message };

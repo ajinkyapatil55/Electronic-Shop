@@ -14,21 +14,21 @@ const STORE = {
 };
 
 /* ============================================================================
-   SMTP TRANSPORTER
+   SMTP TRANSPORTER CONFIGURATION (WITH IPv4 & TIMEOUT PROTECTION)
 ============================================================================ */
 const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
 const SMTP_PORT = Number(process.env.SMTP_PORT) || 465;
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 
-if (!SMTP_USER || !SMTP_PASS) {
-    console.error("❌ SMTP credentials missing in .env for Support Email Service");
-}
-
 const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: SMTP_PORT,
     secure: SMTP_PORT === 465,
+    family: 4, // Strictly force IPv4 (avoids ENETUNREACH on environments without IPv6 routes like Render)
+    connectionTimeout: 8000, // Prevent hanging on cloud providers with blocked SMTP ports
+    greetingTimeout: 8000,
+    socketTimeout: 8000,
     auth: {
         user: SMTP_USER,
         pass: SMTP_PASS,
@@ -39,18 +39,89 @@ const transporter = nodemailer.createTransport({
 });
 
 /* ============================================================================
-   SEND SUPPORT TICKET EMAILS (CUSTOMER CONFIRMATION + ADMIN NOTIFICATION)
+   UNIFIED EMAIL DISPATCHER (HTTP API FOR RENDER CLOUD + SMTP FOR LOCALHOST)
 ============================================================================ */
 /**
- * Dispatches ticket acknowledgment to the customer and alert to admin
- * @param {Object} ticketData
- * @param {string} ticketData.ticketId
- * @param {string} ticketData.name
- * @param {string} ticketData.email
- * @param {string} ticketData.category
- * @param {string} ticketData.referenceId
- * @param {string} ticketData.message
+ * Sends an email using Brevo/Resend HTTPS REST API (Port 443) or falls back to SMTP.
+ * Render Free Tier blocks outbound SMTP ports 25, 465, and 587, but allows HTTPS Port 443.
  */
+async function sendMailUnified({ to, replyTo, subject, html, text }) {
+    // 1. Brevo REST API (Over standard HTTPS Port 443 - Works 100% on Render Free Tier)
+    if (process.env.BREVO_API_KEY) {
+        try {
+            const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+                method: "POST",
+                headers: {
+                    "accept": "application/json",
+                    "api-key": process.env.BREVO_API_KEY.trim(),
+                    "content-type": "application/json",
+                },
+                body: JSON.stringify({
+                    sender: {
+                        name: STORE.name,
+                        email: process.env.SMTP_USER || "patilprem1501@gmail.com",
+                    },
+                    to: [{ email: to }],
+                    replyTo: replyTo ? { email: replyTo } : undefined,
+                    subject,
+                    htmlContent: html,
+                    textContent: text || undefined,
+                }),
+            });
+
+            if (res.ok) {
+                return { success: true, provider: "brevo" };
+            }
+            const errBody = await res.json().catch(() => ({}));
+            console.warn("⚠️ Brevo API returned an error:", errBody);
+        } catch (apiErr) {
+            console.warn("⚠️ Brevo API call failed:", apiErr.message);
+        }
+    }
+
+    // 2. Resend REST API (Over standard HTTPS Port 443 - Works 100% on Render Free Tier)
+    if (process.env.RESEND_API_KEY) {
+        try {
+            const res = await fetch("https://api.resend.com/emails", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${process.env.RESEND_API_KEY.trim()}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    from: process.env.RESEND_FROM || `${STORE.name} <onboarding@resend.dev>`,
+                    to: [to],
+                    reply_to: replyTo,
+                    subject,
+                    html,
+                    text,
+                }),
+            });
+
+            if (res.ok) {
+                return { success: true, provider: "resend" };
+            }
+            const errBody = await res.json().catch(() => ({}));
+            console.warn("⚠️ Resend API returned an error:", errBody);
+        } catch (apiErr) {
+            console.warn("⚠️ Resend API call failed:", apiErr.message);
+        }
+    }
+
+    // 3. Fallback to Direct Nodemailer SMTP
+    return await transporter.sendMail({
+        from: `"${STORE.name} Support" <${process.env.SMTP_USER || "support@electronicshop.com"}>`,
+        to,
+        replyTo,
+        subject,
+        html,
+        text,
+    });
+}
+
+/* ============================================================================
+   SEND SUPPORT TICKET EMAILS (CUSTOMER CONFIRMATION + ADMIN NOTIFICATION)
+============================================================================ */
 async function sendSupportTicketEmail({ ticketId, name, email, category, referenceId, message }) {
     if (!email || !name || !message) {
         throw new Error("Missing required fields: name, email, and message are required.");
@@ -142,7 +213,7 @@ async function sendSupportTicketEmail({ ticketId, name, email, category, referen
     </html>
     `;
 
-    // 2. Admin / Internal Notification Email
+    // 2. Admin Notification Email
     const adminHtml = `
     <!DOCTYPE html>
     <html>
@@ -184,24 +255,18 @@ async function sendSupportTicketEmail({ ticketId, name, email, category, referen
     </html>
     `;
 
-    const customerMailOptions = {
-        from: `"${STORE.name} Support" <${process.env.SMTP_USER}>`,
-        to: email,
-        subject: `[${ticketId}] Support Request Received - ${STORE.name}`,
-        html: customerHtml,
-    };
-
-    const adminMailOptions = {
-        from: `"${STORE.name} Desk" <${process.env.SMTP_USER}>`,
-        to: STORE.supportEmail,
-        replyTo: email,
-        subject: `[${ticketId}] Support Ticket: ${category} - ${name}`,
-        html: adminHtml,
-    };
-
     const results = await Promise.allSettled([
-        transporter.sendMail(customerMailOptions),
-        transporter.sendMail(adminMailOptions),
+        sendMailUnified({
+            to: email,
+            subject: `[${ticketId}] Support Request Received - ${STORE.name}`,
+            html: customerHtml,
+        }),
+        sendMailUnified({
+            to: STORE.supportEmail,
+            replyTo: email,
+            subject: `[${ticketId}] Support Ticket: ${category} - ${name}`,
+            html: adminHtml,
+        }),
     ]);
 
     const errors = results.filter((r) => r.status === "rejected").map((r) => r.reason?.message || r.reason);
@@ -212,7 +277,7 @@ async function sendSupportTicketEmail({ ticketId, name, email, category, referen
     }
 
     return {
-        success: true,
+        success: results.some((r) => r.status === "fulfilled"),
         ticketId,
         customerEmailSent: results[0].status === "fulfilled",
         adminEmailSent: results[1].status === "fulfilled",
