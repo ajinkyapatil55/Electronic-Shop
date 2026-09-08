@@ -202,6 +202,7 @@ const fs = require("fs");
 // Routes
 const authRoutes = require("./routes/authRoutes");
 const ownerRoutes = require("./routes/ownerRoutes");
+const supportRoutes = require("./routes/supportRoutes");
 
 const app = express();
 
@@ -246,6 +247,7 @@ app.get("/api/debug-storage", (req, res) => {
 
 // Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/support", supportRoutes);
 app.use("/api/products", ownerRoutes);
 app.use("/api/cart", ownerRoutes);
 app.use("/api/categories", ownerRoutes);

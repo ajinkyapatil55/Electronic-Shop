@@ -553,76 +553,8 @@ async function sendDeliveryCompletionOtpEmail({ email, customerName, orderId, ot
     }
 }
 
-
-/* ============================================================================
-   SEND SUPPORT TICKET EMAIL (ADMIN + CUSTOMER ACKNOWLEDGMENT)
-============================================================================ */
-
-async function sendSupportTicketEmail({ name, email, category, referenceId, message }) {
-    if (!email || !name || !message) {
-        return { sent: false, error: "Missing required fields (name, email, or message)." };
-    }
-
-    const ticketId = `TKT-${Date.now().toString().slice(-8)}`;
-    const refDisplay = referenceId ? referenceId.trim() : "N/A";
-
-    // Admin Notification Template
-    const adminMailOptions = {
-        from: `"${STORE.name} Support" <${process.env.SMTP_USER}>`,
-        to: STORE.supportEmail,
-        replyTo: email,
-        subject: `[${ticketId}] New Support Ticket: ${category}`,
-        html: `
-            <div style="font-family: Arial, sans-serif; padding: 20px; color: #212121; max-width: 600px; margin: 0 auto; border: 1px solid #eeeeee; border-radius: 8px;">
-                <h2 style="color: ${STORE.themeColor}; margin-top: 0;">New Support Ticket Received</h2>
-                <hr style="border: none; border-top: 1px solid #eeeeee; margin: 15px 0;" />
-                <p><strong>Ticket ID:</strong> <span style="font-family: monospace; color: ${STORE.themeColor}; font-weight: bold;">${ticketId}</span></p>
-                <p><strong>Customer Name:</strong> ${name}</p>
-                <p><strong>Customer Email:</strong> ${email}</p>
-                <p><strong>Category:</strong> ${category}</p>
-                <p><strong>Reference / Order ID:</strong> ${refDisplay}</p>
-                <hr style="border: none; border-top: 1px solid #eeeeee; margin: 15px 0;" />
-                <h3 style="color: #616161; font-size: 14px;">Message Details:</h3>
-                <p style="background: #f5f5f5; padding: 15px; border-radius: 6px; white-space: pre-wrap; font-size: 14px;">${message}</p>
-            </div>
-        `,
-    };
-
-    // Customer Acknowledgment Template
-    const customerMailOptions = {
-        from: `"${STORE.name}" <${process.env.SMTP_USER}>`,
-        to: email,
-        subject: `Support Request Received [${ticketId}] - ${STORE.name}`,
-        html: `
-            <div style="font-family: Arial, sans-serif; padding: 20px; color: #212121; max-width: 600px; margin: 0 auto; border: 1px solid #eeeeee; border-radius: 8px;">
-                <h2 style="color: ${STORE.themeColor}; margin-top: 0;">Hello ${name},</h2>
-                <p>Thank you for contacting ${STORE.name}. We have received your inquiry and generated ticket ID: <strong>${ticketId}</strong>.</p>
-                <div style="background: #fafafa; padding: 15px; border-radius: 6px; margin: 15px 0; border: 1px solid #f0f0f0;">
-                    <p style="margin: 4px 0; font-size: 13px;"><strong>Category:</strong> ${category}</p>
-                    <p style="margin: 4px 0; font-size: 13px;"><strong>Reference ID:</strong> ${refDisplay}</p>
-                </div>
-                <p style="font-size: 14px;">Our team is reviewing your message and will get back to you within 24 business hours.</p>
-                <hr style="border: none; border-top: 1px solid #eeeeee; margin: 20px 0;" />
-                <p style="font-size: 12px; color: #878787;">Need further assistance? Reply directly to this email or reach us at ${STORE.supportPhone}.</p>
-            </div>
-        `,
-    };
-
-    try {
-        await Promise.all([
-            transporter.sendMail(adminMailOptions),
-            transporter.sendMail(customerMailOptions),
-        ]);
-
-        return { sent: true, ticketId };
-    } catch (error) {
-        console.error("❌ Support email send failed:", error.message || error);
-        return { sent: false, error: error.message };
-    }
-}
-
 module.exports = {
     sendOrderConfirmationEmail,
     sendDeliveryCompletionOtpEmail,
-    sendSupportTicketEmail,
 };
+
