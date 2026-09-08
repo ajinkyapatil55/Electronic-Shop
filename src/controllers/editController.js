@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const notificationService = require('../services/notificationService');
+const { toBase64DataUri } = require("../utils/imageProcessor");
 
 // Fetch single product for the Edit Form
 exports.getProductById = async (req, res) => {
@@ -38,10 +39,10 @@ exports.updateProduct = async (req, res) => {
 
         // 3. Append newly uploaded images array parsed via req.files (if any)
         if (req.files && req.files.length > 0) {
-            const newUploadedFiles = req.files.map(file => {
-                return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-            });
-            finalImagesArray = [...finalImagesArray, ...newUploadedFiles];
+            const newUploadedFiles = await Promise.all(
+                req.files.map(file => toBase64DataUri(file, { maxWidth: 1200, maxHeight: 1200, quality: 80 }))
+            );
+            finalImagesArray = [...finalImagesArray, ...newUploadedFiles.filter(Boolean)];
         }
 
         // 4. Format everything back into a stringified JSON layout to match your DB structure

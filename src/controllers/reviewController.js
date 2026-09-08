@@ -1,4 +1,5 @@
 const db = require("../config/db");
+const { toBase64DataUri } = require("../utils/imageProcessor");
 
 // ==========================================================
 // HELPER: DETECT REVIEW SENTIMENT
@@ -351,7 +352,7 @@ exports.submitReview = async (req, res) => {
 
             if (req.file) {
                 queryStr += `, review_image = ?`;
-                const fileVal = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+                const fileVal = await toBase64DataUri(req.file, { maxWidth: 1200, maxHeight: 1200, quality: 80 });
                 queryParams.push(fileVal);
             }
 
@@ -372,7 +373,7 @@ exports.submitReview = async (req, res) => {
 
         // ---------------- INSERT NEW REVIEW ----------------
         const review_image = req.file 
-            ? `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`
+            ? await toBase64DataUri(req.file, { maxWidth: 1200, maxHeight: 1200, quality: 80 })
             : null;
         const [insertResult] = await db.query(
             `INSERT INTO product_reviews

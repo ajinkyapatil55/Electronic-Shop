@@ -4,13 +4,11 @@ const crypto = require('crypto');
 const db = require("../config/db");
 const notificationService = require('../services/notificationService');
 const { sendDeliveryCompletionOtpEmail } = require("../services/orderEmailService");
+const { toBase64DataUri } = require("../utils/imageProcessor");
 
-const getUploadedFilePath = (file) => {
+const getUploadedFilePath = async (file) => {
     if (!file) return null;
-    if (file.buffer) {
-        return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-    }
-    return `uploads/${file.filename}`;
+    return await toBase64DataUri(file, { maxWidth: 1400, maxHeight: 1400, quality: 80 });
 };
 
 let deliveryOtpTablePromise;
@@ -113,11 +111,11 @@ exports.saveDeliveryBoyProfileDetails = async (req, res) => {
             emergency_contact_name, emergency_contact_mobile
         } = req.body;
 
-        const profile_photo = req.files?.['profile_photo'] ? getUploadedFilePath(req.files['profile_photo'][0]) : req.body.profile_photo;
-        const aadhaar_photo = req.files?.['aadhaar_photo'] ? getUploadedFilePath(req.files['aadhaar_photo'][0]) : req.body.aadhaar_photo;
-        const pan_photo = req.files?.['pan_photo'] ? getUploadedFilePath(req.files['pan_photo'][0]) : req.body.pan_photo;
-        const driving_license_photo = req.files?.['driving_license_photo'] ? getUploadedFilePath(req.files['driving_license_photo'][0]) : req.body.driving_license_photo;
-        const vehicle_rc_photo = req.files?.['vehicle_rc_photo'] ? getUploadedFilePath(req.files['vehicle_rc_photo'][0]) : req.body.vehicle_rc_photo;
+        const profile_photo = req.files?.['profile_photo'] ? await getUploadedFilePath(req.files['profile_photo'][0]) : req.body.profile_photo;
+        const aadhaar_photo = req.files?.['aadhaar_photo'] ? await getUploadedFilePath(req.files['aadhaar_photo'][0]) : req.body.aadhaar_photo;
+        const pan_photo = req.files?.['pan_photo'] ? await getUploadedFilePath(req.files['pan_photo'][0]) : req.body.pan_photo;
+        const driving_license_photo = req.files?.['driving_license_photo'] ? await getUploadedFilePath(req.files['driving_license_photo'][0]) : req.body.driving_license_photo;
+        const vehicle_rc_photo = req.files?.['vehicle_rc_photo'] ? await getUploadedFilePath(req.files['vehicle_rc_photo'][0]) : req.body.vehicle_rc_photo;
 
         // Validation for mandatory fields required by schema definitions
         if (!mobile || !address || !city || !state || !pincode) {
@@ -193,11 +191,11 @@ exports.registerDeliveryBoy = async (req, res) => {
         emergency_contact_name, emergency_contact_mobile
     } = req.body;
 
-    const profile_photo = req.files?.['profile_photo'] ? getUploadedFilePath(req.files['profile_photo'][0]) : req.body.profile_photo;
-    const aadhaar_photo = req.files?.['aadhaar_photo'] ? getUploadedFilePath(req.files['aadhaar_photo'][0]) : req.body.aadhaar_photo;
-    const pan_photo = req.files?.['pan_photo'] ? getUploadedFilePath(req.files['pan_photo'][0]) : req.body.pan_photo;
-    const driving_license_photo = req.files?.['driving_license_photo'] ? getUploadedFilePath(req.files['driving_license_photo'][0]) : req.body.driving_license_photo;
-    const vehicle_rc_photo = req.files?.['vehicle_rc_photo'] ? getUploadedFilePath(req.files['vehicle_rc_photo'][0]) : req.body.vehicle_rc_photo;
+    const profile_photo = req.files?.['profile_photo'] ? await getUploadedFilePath(req.files['profile_photo'][0]) : req.body.profile_photo;
+    const aadhaar_photo = req.files?.['aadhaar_photo'] ? await getUploadedFilePath(req.files['aadhaar_photo'][0]) : req.body.aadhaar_photo;
+    const pan_photo = req.files?.['pan_photo'] ? await getUploadedFilePath(req.files['pan_photo'][0]) : req.body.pan_photo;
+    const driving_license_photo = req.files?.['driving_license_photo'] ? await getUploadedFilePath(req.files['driving_license_photo'][0]) : req.body.driving_license_photo;
+    const vehicle_rc_photo = req.files?.['vehicle_rc_photo'] ? await getUploadedFilePath(req.files['vehicle_rc_photo'][0]) : req.body.vehicle_rc_photo;
 
     if (!name || !email || !password || !confirmPassword) {
         return res.status(400).json({ success: false, message: 'Name, email and password are required' });

@@ -2,6 +2,7 @@ const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const fs = require('fs');
 const path = require('path');
+const { toBase64DataUri } = require('../utils/imageProcessor');
 
 //===============================
 // GET User Profile Data
@@ -67,19 +68,7 @@ const updateUserProfile = async (req, res) => {
 
     // Handle new uploaded image
     if (req.file) {
-      imagePath = `uploads/avatars/${req.file.filename}`;
-
-      // Delete old photo if it exists on disk
-      if (currentUser[0].profile_image) {
-        const oldFile = path.join(__dirname, '..', currentUser[0].profile_image);
-        try {
-          if (fs.existsSync(oldFile)) {
-            fs.unlinkSync(oldFile);
-          }
-        } catch (unlinkErr) {
-          console.warn('Failed to remove old avatar image:', unlinkErr.message);
-        }
-      }
+      imagePath = await toBase64DataUri(req.file, { maxWidth: 500, maxHeight: 500, quality: 80 });
     }
 
     // Update query

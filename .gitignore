@@ -1,9 +1,4 @@
-node_modules 
-.env 
-"dist" 
-"uploads" 
-<<<<<<< HEAD
+node_modules
+.env
+uploads
 firebase-service-account.json
-=======
-firebase-service-account.json 
->>>>>>> fix-product-bugs

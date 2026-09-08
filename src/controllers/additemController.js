@@ -1,24 +1,20 @@
-// ONLY ONE declaration allowed at the top
 const db = require("../config/db");
 const notificationService = require('../services/notificationService');
+const { toBase64DataUri } = require("../utils/imageProcessor");
 
 // ================== ADD NEW PRODUCT WITH MULTIPLE IMAGES ==================
 exports.saveitems = async (req, res) => {
     try {
         const { product_id, name, price, stock, category, description } = req.body;
 
-        // --- FIX STARTS HERE ---
+        // Process images directly to compressed Base64 data URIs
         let image_url = null;
         if (req.files && req.files.length > 0) {
-            // 1. Get an array of all images as Base64 data URIs
-            const fileNames = req.files.map(file => {
-                return `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-            });
-            
-            // 2. Convert the array to a JSON string
-            image_url = JSON.stringify(fileNames); 
+            const fileNames = await Promise.all(
+                req.files.map(file => toBase64DataUri(file, { maxWidth: 1200, maxHeight: 1200, quality: 80 }))
+            );
+            image_url = JSON.stringify(fileNames.filter(Boolean)); 
         }
-        // --- FIX ENDS HERE ---
 
         const user_id = req.user ? req.user.id : (req.body.user_id || 1);
 

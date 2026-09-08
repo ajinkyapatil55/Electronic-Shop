@@ -503,111 +503,111 @@ exports.getOrderDetails = async (req, res) => {
   }
 };
 
-// =========================================================================
-// MODIFY ORDER DETAILS (Matches DB Table Schema)
-// Endpoint: POST /api/orders/rest_api_modify_order_details
-// =========================================================================
-exports.modifyOrderDetails = async (req, res) => {
-  const { order_id, delivery_address, scheduled_date, time_slot } = req.body;
-  const authenticatedUserId = req.user?.id || req.user?.userId || req.user?.user_id;
+// // =========================================================================
+// // MODIFY ORDER DETAILS (Matches DB Table Schema)
+// // Endpoint: POST /api/orders/rest_api_modify_order_details
+// // =========================================================================
+// exports.modifyOrderDetails = async (req, res) => {
+//   const { order_id, delivery_address, scheduled_date, time_slot } = req.body;
+//   const authenticatedUserId = req.user?.id || req.user?.userId || req.user?.user_id;
 
-  if (!order_id) {
-    return res.status(400).json({
-      success: false,
-      message: "Missing order_id in request body."
-    });
-  }
+//   if (!order_id) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Missing order_id in request body."
+//     });
+//   }
 
-  if (!delivery_address || !delivery_address.trim()) {
-    return res.status(400).json({
-      success: false,
-      message: "Delivery address cannot be empty."
-    });
-  }
+//   if (!delivery_address || !delivery_address.trim()) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Delivery address cannot be empty."
+//     });
+//   }
 
-  if (!scheduled_date) {
-    return res.status(400).json({
-      success: false,
-      message: "Scheduled delivery date is required."
-    });
-  }
+//   if (!scheduled_date) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Scheduled delivery date is required."
+//     });
+//   }
 
-  try {
-    // 1. Fetch current order status
-    const [existingOrders] = await db.execute(
-      `SELECT id, user_id, status FROM orders WHERE id = ?`,
-      [order_id]
-    );
+//   try {
+//     // 1. Fetch current order status
+//     const [existingOrders] = await db.execute(
+//       `SELECT id, user_id, status FROM orders WHERE id = ?`,
+//       [order_id]
+//     );
 
-    if (existingOrders.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Order not found."
-      });
-    }
+//     if (existingOrders.length === 0) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Order not found."
+//       });
+//     }
 
-    const currentOrder = existingOrders[0];
+//     const currentOrder = existingOrders[0];
 
-    // 2. Ownership Verification
-    if (authenticatedUserId && Number(currentOrder.user_id) !== Number(authenticatedUserId)) {
-      return res.status(403).json({
-        success: false,
-        message: "Unauthorized access to update this order."
-      });
-    }
+//     // 2. Ownership Verification
+//     if (authenticatedUserId && Number(currentOrder.user_id) !== Number(authenticatedUserId)) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Unauthorized access to update this order."
+//       });
+//     }
 
-    const currentStatus = (currentOrder.status || '').toLowerCase().trim();
+//     const currentStatus = (currentOrder.status || '').toLowerCase().trim();
 
-    // 3. Status Rules
-    const canEditAddress = ['pending', 'processing'].includes(currentStatus);
-    const canEditTimeSlot = ['pending', 'processing'].includes(currentStatus);
-    const canEditDate = ['pending', 'processing', 'shipped'].includes(currentStatus);
+//     // 3. Status Rules
+//     const canEditAddress = ['pending', 'processing'].includes(currentStatus);
+//     const canEditTimeSlot = ['pending', 'processing'].includes(currentStatus);
+//     const canEditDate = ['pending', 'processing', 'shipped'].includes(currentStatus);
 
-    if (!canEditDate) {
-      return res.status(400).json({
-        success: false,
-        message: `Orders in '${currentOrder.status}' status cannot be modified.`
-      });
-    }
+//     if (!canEditDate) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Orders in '${currentOrder.status}' status cannot be modified.`
+//       });
+//     }
 
-    // 4. Construct SQL Query safely according to DB Table Column (`address`)
-    let updateQuery = "";
-    let queryParams = [];
+//     // 4. Construct SQL Query safely according to DB Table Column (`address`)
+//     let updateQuery = "";
+//     let queryParams = [];
 
-    if (canEditAddress) {
-      // Pending / Processing: Update address, scheduled_date, and time_slot
-      updateQuery = `
-        UPDATE orders 
-        SET address = ?, scheduled_date = ?, time_slot = ? 
-        WHERE id = ?
-      `;
-      queryParams = [delivery_address.trim(), scheduled_date, time_slot || null, order_id];
-    } else if (currentStatus === 'shipped') {
-      // Shipped: Address & Time Slot are locked. Only allow updating scheduled_date
-      updateQuery = `
-        UPDATE orders 
-        SET scheduled_date = ? 
-        WHERE id = ?
-      `;
-      queryParams = [scheduled_date, order_id];
-    }
+//     if (canEditAddress) {
+//       // Pending / Processing: Update address, scheduled_date, and time_slot
+//       updateQuery = `
+//         UPDATE orders 
+//         SET address = ?, scheduled_date = ?, time_slot = ? 
+//         WHERE id = ?
+//       `;
+//       queryParams = [delivery_address.trim(), scheduled_date, time_slot || null, order_id];
+//     } else if (currentStatus === 'shipped') {
+//       // Shipped: Address & Time Slot are locked. Only allow updating scheduled_date
+//       updateQuery = `
+//         UPDATE orders 
+//         SET scheduled_date = ? 
+//         WHERE id = ?
+//       `;
+//       queryParams = [scheduled_date, order_id];
+//     }
 
-    const [result] = await db.execute(updateQuery, queryParams);
+//     const [result] = await db.execute(updateQuery, queryParams);
 
-    return res.status(200).json({
-      success: true,
-      message: "Order updated successfully."
-    });
+//     return res.status(200).json({
+//       success: true,
+//       message: "Order updated successfully."
+//     });
 
-  } catch (error) {
-    console.error(`[MODIFY ORDER ERROR] Order ID ${order_id}:`, error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error while updating order details.",
-      errorDetails: error.message
-    });
-  }
-};
+//   } catch (error) {
+//     console.error(`[MODIFY ORDER ERROR] Order ID ${order_id}:`, error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error while updating order details.",
+//       errorDetails: error.message
+//     });
+//   }
+// };
 
 // =========================================================================
 // GET ALL ORDERS (Admin overview) — unchanged

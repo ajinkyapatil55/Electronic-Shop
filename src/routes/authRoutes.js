@@ -37,6 +37,11 @@ router.post("/register", authController.register);
 // Login existing user
 router.post("/login", authController.login);
 
+// Logout user
+router.post("/logout", (req, res) => {
+  return res.status(200).json({ success: true, message: "Logged out successfully" });
+});
+
 // Delivery Boy Profile
 router.get("/rest_api_get_delivery_boy_profile", auth, deliveryboyinfoController.getDeliveryBoyProfile);
 router.post("/rest_api_save_delivery_boy_details", auth, uploadFields, deliveryboyinfoController.saveDeliveryBoyProfileDetails);
